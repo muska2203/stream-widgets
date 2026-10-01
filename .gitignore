@@ -1,1 +1,8 @@
+.env
 .idea/
+*.iml
+__pycache__/
+*.egg-info/
+apps/*/tools/shots/
+build/
+dist/

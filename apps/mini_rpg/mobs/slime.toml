@@ -1,0 +1,7 @@
+name = "Слайм"
+icon = "🟢"
+hp = 5
+damage_min = 1
+damage_max = 2
+xp = 5
+gold = 3

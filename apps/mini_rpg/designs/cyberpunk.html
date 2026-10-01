@@ -1,0 +1,704 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>Мини-RPG — дизайн-макет «Cyberpunk HUD»</title>
+<!--
+  СТАТИЧНЫЙ ДИЗАЙН-МАКЕТ (концепт, не рабочий код).
+  Все данные захардкожены правдоподобными примерами из apps/mini_rpg
+  (мобы: mobs/*.toml, предметы: items/*.toml).
+  Стиль: киберпанк неоновый HUD — JetBrains Mono, cyan/magenta на тёмном,
+  скан-линии, срезанные углы, глитч-заголовки.
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700;800&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --cyan:      #00f0ff;
+    --cyan-dim:  rgba(0, 240, 255, .55);
+    --cyan-faint:rgba(0, 240, 255, .18);
+    --magenta:   #ff2bd6;
+    --magenta-faint: rgba(255, 43, 214, .22);
+    --amber:     #ffc857;   /* золото */
+    --hp:        #ff3864;
+    --mana:      #3fa9f5;
+    --xp:        #9dff57;
+    --ink:       #d7f6fa;
+    --ink-dim:   #7fa8b0;
+    --panel:     rgba(4, 12, 18, .86);
+    --panel-2:   rgba(8, 20, 28, .86);
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { min-height: 100%; background: transparent; }
+  body {
+    font-family: 'JetBrains Mono', 'Courier New', Courier, monospace;
+    color: var(--ink);
+    -webkit-font-smoothing: antialiased;
+    padding: 14px;
+  }
+
+  /* срезанные углы панелей */
+  .clip {
+    clip-path: polygon(12px 0, 100% 0, 100% calc(100% - 12px),
+                       calc(100% - 12px) 100%, 0 100%, 0 12px);
+  }
+  .panel {
+    position: relative;
+    background: linear-gradient(165deg, var(--panel), var(--panel-2));
+    border: 1px solid var(--cyan-faint);
+    box-shadow: inset 0 0 22px rgba(0, 240, 255, .05),
+                inset 0 0 2px rgba(0, 240, 255, .25);
+    padding: 10px 12px;
+    overflow: hidden;
+  }
+  /* скан-линии поверх панелей */
+  .panel::after {
+    content: "";
+    position: absolute; inset: 0;
+    pointer-events: none;
+    background: repeating-linear-gradient(180deg,
+                rgba(255,255,255,.028) 0 1px, transparent 1px 3px);
+  }
+  /* тонкая светящаяся линия-акцент сверху панели */
+  .panel::before {
+    content: "";
+    position: absolute; top: 0; left: 12px; right: 0;
+    height: 1px;
+    background: linear-gradient(90deg, var(--cyan-dim), transparent 60%);
+  }
+
+  .num { font-variant-numeric: tabular-nums; }
+
+  /* ================= ВЕРХНИЙ HUD: герой ================= */
+  #hud-top {
+    display: flex;
+    gap: 12px;
+    align-items: stretch;
+    max-width: 980px;
+  }
+
+  /* --- аватарка: ПОЛНОСТЬЮ прозрачная область, только рамка по контуру.
+         Под ней в OBS — камера стримера. НЕ добавлять фон/подложку. --- */
+  #avatar-wrap { flex: none; width: 148px; display: flex; flex-direction: column; gap: 6px; }
+  #avatar-frame {
+    position: relative;
+    width: 148px; height: 148px;
+    background: transparent;            /* никакой заливки — камера под низом */
+    border: 1px solid var(--cyan-faint);
+  }
+  /* неоновые уголки рамки */
+  #avatar-frame .corner { position: absolute; width: 16px; height: 16px; }
+  #avatar-frame .corner.tl { top: -2px; left: -2px;  border-top: 2px solid var(--cyan); border-left: 2px solid var(--cyan);
+                             filter: drop-shadow(0 0 4px var(--cyan)); }
+  #avatar-frame .corner.tr { top: -2px; right: -2px; border-top: 2px solid var(--cyan); border-right: 2px solid var(--cyan);
+                             filter: drop-shadow(0 0 4px var(--cyan)); }
+  #avatar-frame .corner.bl { bottom: -2px; left: -2px;  border-bottom: 2px solid var(--cyan); border-left: 2px solid var(--cyan);
+                             filter: drop-shadow(0 0 4px var(--cyan)); }
+  #avatar-frame .corner.br { bottom: -2px; right: -2px; border-bottom: 2px solid var(--cyan); border-right: 2px solid var(--cyan);
+                             filter: drop-shadow(0 0 4px var(--cyan)); }
+  /* метка-перекрестие в углу рамки (декор, не закрывает центр) */
+  #avatar-frame .tag {
+    position: absolute; top: 4px; left: 6px;
+    font-size: 9px; letter-spacing: .18em; color: var(--cyan-dim);
+  }
+  #level-badge {
+    text-align: center;
+    font-weight: 800; font-size: 14px; letter-spacing: .12em;
+    color: #04121a;
+    background: linear-gradient(90deg, var(--cyan), #4ff7ff);
+    box-shadow: 0 0 12px var(--cyan-dim);
+    padding: 2px 0;
+  }
+
+  /* --- жизненные показатели --- */
+  #vitals { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 7px; }
+  #vitals-row {
+    display: flex; gap: 16px; align-items: baseline;
+    font-size: 13px; color: var(--ink-dim); letter-spacing: .04em;
+  }
+  #vitals-row b { color: var(--ink); }
+  #gold { color: var(--amber); font-weight: 800; text-shadow: 0 0 8px rgba(255,200,87,.5); }
+
+  .bar {
+    position: relative;
+    height: 16px;
+    background: rgba(0, 0, 0, .55);
+    border: 1px solid rgba(255, 255, 255, .1);
+  }
+  .bar .fill { height: 100%; }
+  .bar .lbl {
+    position: absolute; inset: 0;
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0 7px;
+    font-size: 11px; font-weight: 700; letter-spacing: .1em;
+    color: #eafcff; text-shadow: 0 1px 2px #000;
+  }
+  #bar-hp .fill   { width: 70%; background: linear-gradient(90deg, #8f1030, var(--hp));
+                    box-shadow: 0 0 10px rgba(255,56,100,.5); }
+  #bar-mana .fill { width: 80%; background: linear-gradient(90deg, #14507e, var(--mana));
+                    box-shadow: 0 0 10px rgba(63,169,245,.5); }
+  #bar-xp { height: 10px; }
+  #bar-xp .fill { width: 70%; background: linear-gradient(90deg, #3d7017, var(--xp));
+                  box-shadow: 0 0 8px rgba(157,255,87,.4); }
+  #bar-xp .lbl { font-size: 9px; }
+
+  /* статы: чипы с подсказкой эффекта (читается без наведения) */
+  #stats { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; }
+  .stat {
+    border: 1px solid var(--cyan-faint);
+    background: rgba(0, 240, 255, .04);
+    padding: 4px 6px 5px;
+    line-height: 1.25;
+  }
+  .stat .s-top { display: flex; justify-content: space-between; align-items: baseline; }
+  .stat .s-name { font-size: 10px; letter-spacing: .08em; color: var(--ink-dim); }
+  .stat .s-val { font-size: 17px; font-weight: 800; color: var(--cyan);
+                 text-shadow: 0 0 8px var(--cyan-dim); }
+  .stat .s-hint { font-size: 9px; color: var(--ink-dim); margin-top: 2px; }
+
+  /* --- снаряжение: 3 слота --- */
+  #gear { flex: none; width: 235px; display: flex; flex-direction: column; gap: 6px; }
+  .slot {
+    display: flex; align-items: center; gap: 8px;
+    border: 1px solid var(--cyan-faint);
+    background: rgba(0, 240, 255, .04);
+    padding: 5px 8px;
+    min-height: 40px;
+  }
+  .slot .ic { font-size: 20px; width: 24px; text-align: center; flex: none;
+              filter: drop-shadow(0 0 4px rgba(0,240,255,.4)); }
+  .slot .s-body { flex: 1; min-width: 0; line-height: 1.3; }
+  .slot .s-slot { font-size: 8px; letter-spacing: .18em; color: var(--cyan-dim); text-transform: uppercase; }
+  .slot .s-name { font-size: 12px; font-weight: 700; }
+  .slot .s-detail { font-size: 10px; color: var(--ink-dim); }
+  .slot .s-detail b { color: var(--ink); }
+
+  /* ================= СМЕННЫЙ ЭКРАН ФАЗЫ ================= */
+  #stage { max-width: 980px; margin-top: 12px; }
+  .phase { display: none; }
+  .phase.active { display: block; }
+
+  .phase-head {
+    display: flex; align-items: baseline; justify-content: space-between;
+    gap: 1em; margin-bottom: 10px;
+  }
+  .phase-title {
+    font-size: 19px; font-weight: 800; letter-spacing: .14em;
+    text-transform: uppercase; color: var(--cyan);
+    position: relative;
+    text-shadow: 0 0 12px var(--cyan-dim);
+  }
+  /* глитч-акцент заголовка */
+  .phase-title::before, .phase-title::after {
+    content: attr(data-text);
+    position: absolute; inset: 0;
+    opacity: .75;
+  }
+  .phase-title::before { color: var(--magenta); animation: glitch-a 3.2s infinite steps(1); }
+  .phase-title::after  { color: var(--cyan);    animation: glitch-b 2.7s infinite steps(1); }
+  @keyframes glitch-a {
+    0%, 91%, 100% { transform: none; clip-path: inset(0 0 100% 0); }
+    92% { transform: translate(-2px, 1px); clip-path: inset(10% 0 55% 0); }
+    95% { transform: translate(2px, -1px); clip-path: inset(60% 0 8% 0); }
+  }
+  @keyframes glitch-b {
+    0%, 88%, 100% { transform: none; clip-path: inset(0 0 100% 0); }
+    89% { transform: translate(2px, 1px);  clip-path: inset(35% 0 40% 0); }
+    93% { transform: translate(-2px, 0);   clip-path: inset(75% 0 5% 0); }
+  }
+  .timer {
+    font-size: 15px; font-weight: 800; letter-spacing: .1em;
+    color: var(--magenta);
+    border: 1px solid var(--magenta-faint);
+    background: rgba(255, 43, 214, .07);
+    padding: 2px 10px;
+    text-shadow: 0 0 8px var(--magenta-faint);
+  }
+  .timer::before { content: "T−"; color: var(--ink-dim); font-weight: 400; }
+
+  /* --- варианты голосования (строки) --- */
+  .opt {
+    display: flex; align-items: baseline; gap: 10px;
+    padding: 5px 10px;
+    border: 1px solid rgba(255, 255, 255, .08);
+    background: rgba(0, 0, 0, .35);
+    margin-top: 5px;
+    font-size: 13px;
+  }
+  .opt .key {
+    flex: none;
+    font-weight: 800; font-size: 14px;
+    color: var(--cyan);
+    border: 1px solid var(--cyan-dim);
+    background: rgba(0, 240, 255, .08);
+    padding: 0 6px;
+    box-shadow: 0 0 6px rgba(0, 240, 255, .15);
+  }
+  .opt .o-label { flex: 1; min-width: 0; }
+  .opt .o-detail { color: var(--ink-dim); font-size: 11px; }
+  .opt .votes {
+    flex: none; font-weight: 800; font-size: 13px;
+    color: var(--ink-dim);
+  }
+  .opt .votes::before { content: "◈ "; font-size: 10px; }
+  .opt.has-votes .votes { color: var(--ink); }
+  /* лидер голосования — magenta неон */
+  .opt.leader {
+    border-color: var(--magenta);
+    background: rgba(255, 43, 214, .08);
+    box-shadow: 0 0 12px rgba(255, 43, 214, .25),
+                inset 0 0 10px rgba(255, 43, 214, .08);
+  }
+  .opt.leader .key {
+    color: #14040f;
+    background: var(--magenta);
+    border-color: var(--magenta);
+    box-shadow: 0 0 10px var(--magenta);
+  }
+  .opt.leader .votes { color: var(--magenta); text-shadow: 0 0 8px var(--magenta-faint); }
+  .opt.leader .o-label { color: #ffe6fb; }
+
+  /* --- фаза «Двери»: карточки --- */
+  #doors { display: flex; gap: 10px; }
+  .door {
+    flex: 1;
+    display: flex; flex-direction: column; align-items: center; gap: 5px;
+    text-align: center;
+    padding: 12px 8px 9px;
+  }
+  .door .key {
+    font-weight: 800; font-size: 14px;
+    color: var(--cyan);
+    border: 1px solid var(--cyan-dim);
+    background: rgba(0, 240, 255, .08);
+    padding: 0 7px;
+  }
+  .door .d-icon { font-size: 38px; line-height: 1.15;
+                  filter: drop-shadow(0 0 8px rgba(0,240,255,.35)); }
+  .door .d-name { font-size: 14px; font-weight: 700; letter-spacing: .04em; }
+  .door .d-threat { font-size: 10px; color: var(--hp); letter-spacing: .04em; }
+  .door .d-threat.calm { color: var(--ink-dim); }
+  .door .votes { font-weight: 800; font-size: 13px; color: var(--ink-dim); }
+  .door .votes::before { content: "◈ "; font-size: 10px; }
+  .door.leader {
+    border-color: var(--magenta);
+    box-shadow: 0 0 16px rgba(255, 43, 214, .3),
+                inset 0 0 14px rgba(255, 43, 214, .1);
+  }
+  .door.leader .key { color: #14040f; background: var(--magenta); border-color: var(--magenta);
+                      box-shadow: 0 0 10px var(--magenta); }
+  .door.leader .votes { color: var(--magenta); text-shadow: 0 0 8px var(--magenta-faint); }
+
+  /* --- карточка моба --- */
+  #mob-card, .mob-card {
+    display: flex; align-items: center; gap: 14px;
+    margin-bottom: 10px;
+  }
+  .mob-icon { font-size: 44px; line-height: 1; flex: none;
+              filter: drop-shadow(0 0 10px rgba(255,56,100,.45)); }
+  .mob-info { flex: 1; min-width: 0; }
+  .mob-name {
+    font-size: 15px; font-weight: 800; letter-spacing: .12em;
+    text-transform: uppercase; color: var(--hp);
+    text-shadow: 0 0 10px rgba(255,56,100,.4);
+    margin-bottom: 5px;
+  }
+  .mob-name .mob-dmg { color: var(--ink-dim); font-weight: 400;
+                       font-size: 11px; letter-spacing: .04em; text-transform: none;
+                       text-shadow: none; margin-left: 10px; }
+  #bar-mob .fill { width: 100%; background: linear-gradient(90deg, #6e0c22, var(--hp));
+                   box-shadow: 0 0 10px rgba(255,56,100,.5); }
+  .mob-card.attack-view #bar-mob .fill { width: 100%; }
+  #bar-mob-wounded .fill { width: 22%; background: linear-gradient(90deg, #6e0c22, var(--hp));
+                           box-shadow: 0 0 10px rgba(255,56,100,.5); }
+
+  .group-label {
+    font-size: 10px; letter-spacing: .2em; color: var(--ink-dim);
+    text-transform: uppercase; margin: 9px 0 1px;
+  }
+  .group-label::before { content: "// "; color: var(--cyan-dim); }
+
+  /* --- итог хода --- */
+  .outcome { font-size: 13.5px; line-height: 1.75; }
+  .outcome .who { color: var(--cyan); font-weight: 700; }
+  .outcome .who.mob { color: var(--hp); }
+  .outcome .dmg { color: var(--hp); font-weight: 800; }
+  .outcome .crit {
+    color: var(--magenta); font-weight: 800; letter-spacing: .08em;
+    text-shadow: 0 0 10px var(--magenta-faint);
+    animation: crit-blink 1s infinite steps(2);
+  }
+  @keyframes crit-blink { 50% { opacity: .45; } }
+  .outcome .block { color: var(--xp); font-weight: 800; }
+  .outcome .armor { color: var(--mana); }
+  .outcome .hp-left { color: var(--ink-dim); font-size: 11.5px; }
+
+  /* --- прокачка --- */
+  .stat-opt .arrow { color: var(--magenta); font-weight: 800; }
+  .stat-opt .new-val { color: var(--xp); font-weight: 800; }
+  .stat-opt .eff { color: var(--ink-dim); font-size: 11px; }
+
+  /* --- магазин --- */
+  .shop-gold {
+    font-size: 15px; font-weight: 800; letter-spacing: .06em;
+    color: var(--amber); text-shadow: 0 0 10px rgba(255,200,87,.5);
+    border: 1px solid rgba(255, 200, 87, .35);
+    background: rgba(255, 200, 87, .06);
+    padding: 2px 12px;
+  }
+  .price { font-weight: 800; color: var(--amber); white-space: nowrap; }
+  .opt.too-expensive { opacity: .55; }
+  .opt.too-expensive .price { color: var(--hp); }
+  .now-eq { color: var(--mana); font-size: 11px; }
+
+  /* --- отдых / итог забега --- */
+  .rest-box { display: flex; align-items: center; gap: 16px; font-size: 14px; line-height: 1.6; }
+  .rest-box .big-ic { font-size: 42px; filter: drop-shadow(0 0 8px rgba(157,255,87,.4)); }
+  .rest-box b { color: var(--xp); }
+  .summary { text-align: center; font-size: 15px; line-height: 2; }
+  .summary .dead {
+    font-size: 22px; font-weight: 800; letter-spacing: .2em;
+    color: var(--hp); text-transform: uppercase;
+    text-shadow: 0 0 14px rgba(255,56,100,.55);
+  }
+  .summary b { color: var(--cyan); font-size: 18px; text-shadow: 0 0 8px var(--cyan-dim); }
+  .summary .restart { color: var(--ink-dim); font-size: 11.5px; letter-spacing: .08em; }
+
+  /* ================= СЛУЖЕБНЫЕ ЭЛЕМЕНТЫ МАКЕТА (не входят в прод) ================= */
+  /* переключатель фаз — только для просмотра макета */
+  #phase-switcher {
+    position: fixed; top: 8px; right: 8px; z-index: 99;
+    display: flex; flex-wrap: wrap; gap: 4px; max-width: 420px;
+    justify-content: flex-end;
+    font-family: 'JetBrains Mono', monospace;
+  }
+  #phase-switcher button {
+    font: 400 10px/1 'JetBrains Mono', monospace;
+    letter-spacing: .05em;
+    color: #9ab;
+    background: rgba(10, 16, 22, .92);
+    border: 1px dashed #456;
+    padding: 4px 7px;
+    cursor: pointer;
+  }
+  #phase-switcher button.on { color: #0ff; border-color: #0ff; }
+  /* превью OBS: подложка + силуэт лица под рамкой аватарки */
+  #obs-preview-toggle {
+    position: fixed; bottom: 8px; right: 8px; z-index: 99;
+    font: 400 10px/1 'JetBrains Mono', monospace;
+    color: #9ab; background: rgba(10, 16, 22, .92);
+    border: 1px dashed #456; padding: 5px 8px; cursor: pointer;
+    user-select: none;
+  }
+  body.preview {
+    background:
+      repeating-conic-gradient(#20242c 0% 25%, #15181e 0% 50%) 0 0 / 28px 28px;
+  }
+  /* силуэт-заглушка лица — только в режиме превью OBS */
+  #face-stub { display: none; }
+  body.preview #face-stub {
+    display: block;
+    position: absolute; inset: 0;
+    background:
+      radial-gradient(ellipse 34% 30% at 50% 34%, #6a6f78 98%, transparent 100%),
+      radial-gradient(ellipse 46% 26% at 50% 88%, #5c616a 98%, transparent 100%);
+    opacity: .9;
+  }
+</style>
+</head>
+<body>
+
+<!-- ==================== СЛУЖЕБНОЕ: переключатель фаз (в проде не будет) ==================== -->
+<nav id="phase-switcher">
+  <button data-phase="doors"   class="on">Двери</button>
+  <button data-phase="attack">Бой: атака</button>
+  <button data-phase="defense">Бой: защита</button>
+  <button data-phase="outcome">Бой: итог хода</button>
+  <button data-phase="levelup">Прокачка</button>
+  <button data-phase="shop">Магазин</button>
+  <button data-phase="rest">Отдых</button>
+  <button data-phase="gameover">Итог забега</button>
+</nav>
+<!-- ==================== СЛУЖЕБНОЕ: превью OBS (в проде не будет) ==================== -->
+<label id="obs-preview-toggle"><input type="checkbox" id="obs-cb"> превью OBS</label>
+
+<!-- ==================== ПОСТОЯННАЯ ПАНЕЛЬ ГЕРОЯ ==================== -->
+<div id="hud-top">
+  <div id="avatar-wrap">
+    <!-- Прозрачная рамка аватарки: никакого фона, под ней в OBS — камера -->
+    <div id="avatar-frame">
+      <div id="face-stub"></div><!-- СЛУЖЕБНОЕ: силуэт для превью OBS -->
+      <span class="tag">CAM-01</span>
+      <span class="corner tl"></span><span class="corner tr"></span>
+      <span class="corner bl"></span><span class="corner br"></span>
+    </div>
+    <div id="level-badge">LVL 3</div>
+  </div>
+
+  <section id="vitals" class="panel clip">
+    <div id="vitals-row">
+      <span>ОПЫТ <b class="num">7/10</b></span>
+      <span>ЗОЛОТО <span id="gold" class="num">23 ⬡</span></span>
+    </div>
+    <div class="bar" id="bar-hp"><div class="fill"></div>
+      <div class="lbl"><span>HP</span><span class="num">14 / 20</span></div></div>
+    <div class="bar" id="bar-mana"><div class="fill"></div>
+      <div class="lbl"><span>MANA</span><span class="num">8 / 10</span></div></div>
+    <div class="bar" id="bar-xp"><div class="fill"></div>
+      <div class="lbl"><span>XP</span><span class="num">7 / 10</span></div></div>
+    <div id="stats">
+      <div class="stat"><div class="s-top"><span class="s-name">СИЛА</span><span class="s-val num">2</span></div>
+        <div class="s-hint">+урон ближним</div></div>
+      <div class="stat"><div class="s-top"><span class="s-name">ЛОВК</span><span class="s-val num">1</span></div>
+        <div class="s-hint">+урон дальним</div></div>
+      <div class="stat"><div class="s-top"><span class="s-name">ИНТ</span><span class="s-val num">1</span></div>
+        <div class="s-hint">+5 маны/ед.</div></div>
+      <div class="stat"><div class="s-top"><span class="s-name">ВЫН</span><span class="s-val num">2</span></div>
+        <div class="s-hint">+5 HP/ед.</div></div>
+      <div class="stat"><div class="s-top"><span class="s-name">УДАЧА</span><span class="s-val num">1</span></div>
+        <div class="s-hint">+2% крита (×2)</div></div>
+    </div>
+  </section>
+
+  <section id="gear" class="panel clip">
+    <div class="slot">
+      <span class="ic">🗡️</span>
+      <span class="s-body">
+        <span class="s-slot">Ближнее</span><br>
+        <span class="s-name">Ржавый меч</span><br>
+        <span class="s-detail">урон <b class="num">2–4</b> <b class="num">+2</b> Сила</span>
+      </span>
+    </div>
+    <div class="slot">
+      <span class="ic">🏹</span>
+      <span class="s-body">
+        <span class="s-slot">Дальнее</span><br>
+        <span class="s-name">Короткий лук</span><br>
+        <span class="s-detail">урон <b class="num">4–8</b> <b class="num">+1</b> Ловк · зарядов <b class="num">4</b></span>
+      </span>
+    </div>
+    <div class="slot">
+      <span class="ic">🧥</span>
+      <span class="s-body">
+        <span class="s-slot">Броня</span><br>
+        <span class="s-name">Кожаная куртка</span><br>
+        <span class="s-detail"><b class="num">−1</b> входящего урона</span>
+      </span>
+    </div>
+  </section>
+</div>
+
+<!-- ==================== СМЕННЫЙ ЭКРАН ФАЗЫ ==================== -->
+<main id="stage">
+
+  <!-- ФАЗА: выбор двери -->
+  <section class="phase active" id="ph-doors">
+    <div class="phase-head">
+      <span class="phase-title" data-text="ВЫБЕРИ ДВЕРЬ">ВЫБЕРИ ДВЕРЬ</span>
+      <span class="timer num">12</span>
+    </div>
+    <div id="doors">
+      <div class="door panel clip leader">
+        <span class="key num">1</span>
+        <span class="d-icon">👹</span>
+        <span class="d-name">Орк</span>
+        <span class="d-threat">HP 9 · урон 3–6</span>
+        <span class="votes num">7</span>
+      </div>
+      <div class="door panel clip">
+        <span class="key num">2</span>
+        <span class="d-icon">🛒</span>
+        <span class="d-name">Магазин</span>
+        <span class="d-threat calm">торговец</span>
+        <span class="votes num">3</span>
+      </div>
+      <div class="door panel clip">
+        <span class="key num">3</span>
+        <span class="d-icon">🛏️</span>
+        <span class="d-name">Зона отдыха</span>
+        <span class="d-threat calm">полное восстановление</span>
+        <span class="votes num">2</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- ФАЗА: бой — атака -->
+  <section class="phase" id="ph-attack">
+    <div class="phase-head">
+      <span class="phase-title" data-text="БОЙ // АТАКА">БОЙ // АТАКА</span>
+      <span class="timer num">9</span>
+    </div>
+    <div class="mob-card panel clip">
+      <span class="mob-icon">👹</span>
+      <div class="mob-info">
+        <div class="mob-name">Орк <span class="mob-dmg">урон 3–6</span></div>
+        <div class="bar" id="bar-mob"><div class="fill"></div>
+          <div class="lbl"><span>HP</span><span class="num">9 / 9</span></div></div>
+      </div>
+    </div>
+    <div class="group-label">🗡️ ближнее · Ржавый меч · урон 2–4 +2 Сила</div>
+    <div class="opt leader"><span class="key num">1</span>
+      <span class="o-label">голова <span class="o-detail">· урон 2–4 +2</span></span>
+      <span class="votes num">5</span></div>
+    <div class="opt has-votes"><span class="key num">2</span>
+      <span class="o-label">тело <span class="o-detail">· урон 2–4 +2</span></span>
+      <span class="votes num">2</span></div>
+    <div class="opt"><span class="key num">3</span>
+      <span class="o-label">ноги <span class="o-detail">· урон 2–4 +2</span></span>
+      <span class="votes num">0</span></div>
+    <div class="group-label">🏹 дальнее · Короткий лук · урон 4–8 +1 Ловк · зарядов 4</div>
+    <div class="opt has-votes"><span class="key num">4</span>
+      <span class="o-label">голова <span class="o-detail">· урон 4–8 +1 · −1 заряд</span></span>
+      <span class="votes num">3</span></div>
+    <div class="opt"><span class="key num">5</span>
+      <span class="o-label">тело <span class="o-detail">· урон 4–8 +1 · −1 заряд</span></span>
+      <span class="votes num">0</span></div>
+    <div class="opt"><span class="key num">6</span>
+      <span class="o-label">ноги <span class="o-detail">· урон 4–8 +1 · −1 заряд</span></span>
+      <span class="votes num">0</span></div>
+  </section>
+
+  <!-- ФАЗА: бой — защита -->
+  <section class="phase" id="ph-defense">
+    <div class="phase-head">
+      <span class="phase-title" data-text="БОЙ // ЗАЩИТА">БОЙ // ЗАЩИТА</span>
+      <span class="timer num">7</span>
+    </div>
+    <div class="mob-card panel clip">
+      <span class="mob-icon">👹</span>
+      <div class="mob-info">
+        <div class="mob-name">Орк <span class="mob-dmg">урон 3–6</span></div>
+        <div class="bar" id="bar-mob-wounded"><div class="fill"></div>
+          <div class="lbl"><span>HP</span><span class="num">2 / 9</span></div></div>
+      </div>
+    </div>
+    <div class="group-label">совпадение с атакой моба = полный блок урона</div>
+    <div class="opt has-votes"><span class="key num">1</span>
+      <span class="o-label">защитить голову</span>
+      <span class="votes num">2</span></div>
+    <div class="opt leader"><span class="key num">2</span>
+      <span class="o-label">защитить тело</span>
+      <span class="votes num">6</span></div>
+    <div class="opt has-votes"><span class="key num">3</span>
+      <span class="o-label">защитить ноги</span>
+      <span class="votes num">1</span></div>
+  </section>
+
+  <!-- ФАЗА: бой — итог хода -->
+  <section class="phase" id="ph-outcome">
+    <div class="phase-head">
+      <span class="phase-title" data-text="БОЙ // ИТОГ ХОДА">БОЙ // ИТОГ ХОДА</span>
+    </div>
+    <div class="panel clip outcome">
+      <div><span class="who">ГЕРОЙ</span> бьёт (дальнее) в голову —
+        <span class="crit">КРИТ ×2!</span>
+        <span class="dmg num">урон 14</span>
+        <span class="hp-left num">· Орк HP 0/9</span></div>
+      <div><span class="who mob">ОРК</span> атакует в тело —
+        <span class="dmg num">6</span> <span class="armor num">− 1 брони</span> =
+        <span class="dmg num">5 урона</span>
+        <span class="hp-left num">· Герой HP 9/20</span></div>
+      <div><span class="who mob">ОРК</span> атакует в ноги —
+        <span class="block">БЛОК!</span>
+        <span class="hp-left">защита совпала · урон 0</span></div>
+    </div>
+  </section>
+
+  <!-- ФАЗА: прокачка -->
+  <section class="phase" id="ph-levelup">
+    <div class="phase-head">
+      <span class="phase-title" data-text="НОВЫЙ УРОВЕНЬ // ВЫБЕРИ СТАТУ">НОВЫЙ УРОВЕНЬ // ВЫБЕРИ СТАТУ</span>
+      <span class="timer num">14</span>
+    </div>
+    <div class="opt stat-opt leader"><span class="key num">1</span>
+      <span class="o-label">Сила <span class="num">2</span> <span class="arrow">→</span> <span class="new-val num">3</span>
+        <span class="eff">· +1 к урону ближним оружием</span></span>
+      <span class="votes num">4</span></div>
+    <div class="opt stat-opt has-votes"><span class="key num">2</span>
+      <span class="o-label">Ловкость <span class="num">1</span> <span class="arrow">→</span> <span class="new-val num">2</span>
+        <span class="eff">· +1 к урону дальним оружием</span></span>
+      <span class="votes num">2</span></div>
+    <div class="opt stat-opt"><span class="key num">3</span>
+      <span class="o-label">Интеллект <span class="num">1</span> <span class="arrow">→</span> <span class="new-val num">2</span>
+        <span class="eff">· +5 к макс. мане</span></span>
+      <span class="votes num">0</span></div>
+    <div class="opt stat-opt has-votes"><span class="key num">4</span>
+      <span class="o-label">Выносливость <span class="num">2</span> <span class="arrow">→</span> <span class="new-val num">3</span>
+        <span class="eff">· +5 к макс. HP (текущее HP тоже +5)</span></span>
+      <span class="votes num">1</span></div>
+    <div class="opt stat-opt"><span class="key num">5</span>
+      <span class="o-label">Удача <span class="num">1</span> <span class="arrow">→</span> <span class="new-val num">2</span>
+        <span class="eff">· +2% к шансу крита (крит ×2)</span></span>
+      <span class="votes num">0</span></div>
+  </section>
+
+  <!-- ФАЗА: магазин -->
+  <section class="phase" id="ph-shop">
+    <div class="phase-head">
+      <span class="phase-title" data-text="МАГАЗИН">МАГАЗИН</span>
+      <span class="shop-gold num">23 ⬡ золота</span>
+      <span class="timer num">18</span>
+    </div>
+    <div class="opt leader"><span class="key num">1</span>
+      <span class="o-label">🪓 Боевой топор · ближнее · урон <b class="num">3–7</b><br>
+        <span class="now-eq">сейчас: Ржавый меч 2–4 — заменит без возврата</span></span>
+      <span class="price num">18 ⬡</span>
+      <span class="votes num">5</span></div>
+    <div class="opt too-expensive"><span class="key num">2</span>
+      <span class="o-label">🎯 Арбалет · дальнее · урон <b class="num">6–12</b> · зарядов <b class="num">3</b><br>
+        <span class="now-eq">сейчас: Короткий лук 4–8, 4 заряда — заменит без возврата</span></span>
+      <span class="price num">25 ⬡</span>
+      <span class="votes num">1</span></div>
+    <div class="opt has-votes"><span class="key num">3</span>
+      <span class="o-label">🛡️ Кольчуга · броня <b class="num">−2 урона</b><br>
+        <span class="now-eq">сейчас: Кожаная куртка −1 — заменит без возврата</span></span>
+      <span class="price num">20 ⬡</span>
+      <span class="votes num">2</span></div>
+    <div class="opt"><span class="key num">0</span>
+      <span class="o-label">выйти без покупки</span>
+      <span class="votes num">0</span></div>
+  </section>
+
+  <!-- ФАЗА: зона отдыха -->
+  <section class="phase" id="ph-rest">
+    <div class="phase-head">
+      <span class="phase-title" data-text="ЗОНА ОТДЫХА">ЗОНА ОТДЫХА</span>
+    </div>
+    <div class="panel clip rest-box">
+      <span class="big-ic">🛏️</span>
+      <div>Герой отдыхает.<br>
+        HP восстановлено: <b class="num">20/20</b> · мана восстановлена: <b class="num">10/10</b></div>
+    </div>
+  </section>
+
+  <!-- ФАЗА: итог забега -->
+  <section class="phase" id="ph-gameover">
+    <div class="panel clip summary">
+      <div class="dead">// ГЕРОЙ ПОГИБ //</div>
+      <div>уровень <b class="num">5</b> · убито мобов <b class="num">8</b> ·
+        заработано золота <b class="num">47 ⬡</b></div>
+      <div class="restart">новый забег начнётся автоматически через <span class="num">20</span> с</div>
+    </div>
+  </section>
+
+</main>
+
+<script>
+"use strict";
+/* СЛУЖЕБНЫЙ JS макета: переключение видимости фаз и превью OBS.
+   В проде фазы переключает сервер через state.json. */
+const buttons = document.querySelectorAll("#phase-switcher button");
+for (const btn of buttons) {
+  btn.addEventListener("click", () => {
+    for (const b of buttons) b.classList.toggle("on", b === btn);
+    for (const ph of document.querySelectorAll(".phase"))
+      ph.classList.toggle("active", ph.id === "ph-" + btn.dataset.phase);
+  });
+}
+document.getElementById("obs-cb").addEventListener("change", e => {
+  document.body.classList.toggle("preview", e.target.checked);
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,5 @@
+name = "Кожаная куртка"
+icon = "🧥"
+slot = "armor"
+armor = 1
+price = 10

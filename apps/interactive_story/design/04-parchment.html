@@ -1,0 +1,511 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>Макет 04 — «Книжный пергамент»</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Alegreya:ital,wght@0,400;0,500;0,700;1,400&family=Alegreya+SC:wght@500;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --ink:        #382715;   /* основной текст на пергаменте */
+    --ink-soft:   #5d4630;   /* приглушённый текст */
+    --bronze:     #8a6134;   /* бронзовый акцент */
+    --bronze-lit: #b98d4f;
+    --bordeaux:   #7c2d2d;   /* бордо: выбранный вариант, ошибки */
+    --parch-1:    #f0e2bd;   /* пергамент, светлый край */
+    --parch-2:    #e2cd9e;   /* пергамент, тёмный край */
+    --band:       #2b1e11;   /* тёмная шапка-полоса */
+    --band-ink:   #e8d9b2;
+    --radius: 10px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; overflow: hidden; background: transparent; }
+  body {
+    font-family: Alegreya, Georgia, 'Times New Roman', serif;
+    color: var(--ink);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* --- фон-подложка «стрим» (только для демо-просмотра) --------------- */
+  #stream-bg {
+    position: fixed; inset: 0; z-index: -2;
+    background:
+      radial-gradient(120% 70% at 30% 18%, rgba(94, 74, 42, .55), transparent 60%),
+      radial-gradient(90% 60% at 78% 72%, rgba(38, 52, 34, .6), transparent 65%),
+      radial-gradient(60% 45% at 62% 30%, rgba(168, 122, 54, .30), transparent 70%),
+      linear-gradient(165deg, #241b12 0%, #17211a 48%, #10141b 100%);
+  }
+  #stream-bg::after {           /* виньетка */
+    content: ""; position: absolute; inset: 0;
+    background: radial-gradient(130% 100% at 50% 45%, transparent 55%, rgba(0,0,0,.55));
+  }
+  body.no-bg #stream-bg {
+    background: repeating-conic-gradient(#3a3a3a 0 25%, #2c2c2c 0 50%) 0 0 / 28px 28px;
+  }
+  body.no-bg #stream-bg::after { background: none; }
+
+  /* --- колонка контента ------------------------------------------------ */
+  #wrap {
+    max-width: min(92vw, 46em);
+    margin: 0 auto;
+    padding: 1.6vh 0 2vh;
+    font-size: clamp(14px, 2.2vh, 21px);
+  }
+
+  /* --- шапка: тёмная полоса с бронзовой каймой, всегда видна ----------- */
+  #header {
+    background: linear-gradient(180deg, #352615 0%, var(--band) 100%);
+    color: var(--band-ink);
+    border: 1px solid rgba(185, 141, 79, .55);
+    border-bottom: 2px solid var(--bronze);
+    border-radius: var(--radius) var(--radius) 0 0;
+    box-shadow: 0 3px 14px rgba(0, 0, 0, .5);
+    text-align: center;
+    padding: .5em 1em .45em;
+    font-family: 'Alegreya SC', Alegreya, Georgia, serif;
+    font-size: clamp(14px, 2.4vh, 22px);
+    font-weight: 500;
+    letter-spacing: .05em;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  #header .sec { font-variant-numeric: tabular-nums; color: var(--bronze-lit); }
+
+  /* --- пергаментная панель -------------------------------------------- */
+  .panel {
+    background:
+      radial-gradient(140% 90% at 18% 0%, rgba(255, 250, 230, .55), transparent 55%),
+      radial-gradient(120% 100% at 88% 100%, rgba(122, 84, 34, .22), transparent 60%),
+      linear-gradient(168deg, var(--parch-1), var(--parch-2));
+    border: 1px solid rgba(90, 60, 25, .55);
+    border-radius: var(--radius);
+    box-shadow:
+      inset 0 0 1.6em rgba(110, 75, 30, .22),
+      0 5px 20px rgba(0, 0, 0, .5);
+    padding: .75em 1em;
+  }
+
+  /* --- сцена / итог ---------------------------------------------------- */
+  #scene, #result {
+    margin-top: 1.8vh;
+    font-size: clamp(15px, 2.55vh, 24px);
+    line-height: 1.5;
+    overflow-wrap: break-word;
+  }
+  #scene::first-letter {
+    font-family: 'Alegreya SC', Alegreya, Georgia, serif;
+    font-size: 2.1em;
+    font-weight: 700;
+    color: var(--bordeaux);
+    float: left;
+    line-height: .82;
+    padding: .04em .12em 0 0;
+  }
+  #result {
+    border-left: 4px solid var(--bronze);
+    font-style: italic;
+    color: #43301b;
+  }
+  .fade-in { animation: fadeSlide .5s ease both; }
+  @keyframes fadeSlide {
+    from { opacity: 0; transform: translateY(-7px); }
+    to   { opacity: 1; transform: none; }
+  }
+
+  /* --- заголовок-подсказка выбора истории ------------------------------ */
+  #select-title {
+    margin-top: 2vh;
+    text-align: center;
+    font-family: 'Alegreya SC', Alegreya, Georgia, serif;
+    font-size: clamp(15px, 2.7vh, 25px);
+    font-weight: 700;
+    letter-spacing: .04em;
+    color: var(--band-ink);
+    background: rgba(43, 30, 17, .85);
+    border: 1px solid rgba(185, 141, 79, .4);
+    border-radius: var(--radius);
+    padding: .4em 1em;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, .45);
+  }
+
+  /* --- строки вариантов / историй -------------------------------------- */
+  #options, #select-list { margin-top: 1.6vh; }
+  .opt {
+    display: flex;
+    align-items: baseline;
+    gap: .65em;
+    margin-top: .9vh;
+    padding: .5em .8em;
+    border-radius: var(--radius);
+    border: 1px solid rgba(90, 60, 25, .4);
+    background:
+      linear-gradient(170deg, rgba(240, 226, 189, .88), rgba(226, 205, 158, .88));
+    box-shadow: 0 3px 12px rgba(0, 0, 0, .35);
+    font-size: clamp(14px, 2.35vh, 22px);
+    line-height: 1.35;
+    overflow-wrap: break-word;
+    transition: background-color .25s ease, box-shadow .25s ease,
+                border-color .25s ease;
+    animation: optIn .4s ease both;
+    animation-delay: calc(var(--i, 0) * 60ms);
+  }
+  @keyframes optIn {
+    from { opacity: 0; transform: translateX(-10px); }
+    to   { opacity: 1; transform: none; }
+  }
+  .opt .num {
+    font-family: 'Alegreya SC', Alegreya, Georgia, serif;
+    font-weight: 700;
+    color: var(--bronze);
+    min-width: 1.35em;
+    text-align: center;
+    border: 1px solid rgba(138, 97, 52, .55);
+    border-radius: 4px;
+    padding: 0 .15em;
+    background: rgba(255, 248, 225, .5);
+  }
+  .opt .body { flex: 1; min-width: 0; }
+  .opt .label { color: var(--ink-soft); }
+  .opt .note {
+    display: block;
+    font-size: .82em;
+    font-style: italic;
+    color: #6d563c;
+    margin-top: .1em;
+  }
+  .opt .votes {
+    font-variant-numeric: tabular-nums;
+    font-weight: 700;
+    color: var(--bronze);
+    min-width: 1.7em;
+    text-align: right;
+  }
+  .opt .votes:empty::after { content: ""; }
+  .opt .votes:not(:empty)::after { content: " ✦"; font-size: .8em; }
+
+  .opt.active {
+    background:
+      linear-gradient(170deg, rgba(243, 231, 198, .95), rgba(232, 213, 170, .95));
+  }
+  .opt.active .label { color: var(--ink); }
+
+  .opt.leader {
+    border: 1px solid var(--bronze);
+    box-shadow:
+      0 0 0 1px rgba(185, 141, 79, .5),
+      0 0 18px rgba(185, 141, 79, .45),
+      0 3px 12px rgba(0, 0, 0, .35);
+    animation: optIn .4s ease both, leaderBreathe 2.6s ease-in-out infinite;
+    animation-delay: calc(var(--i, 0) * 60ms), .4s;
+  }
+  @keyframes leaderBreathe {
+    0%, 100% { box-shadow: 0 0 0 1px rgba(185,141,79,.5), 0 0 12px rgba(185,141,79,.3), 0 3px 12px rgba(0,0,0,.35); }
+    50%      { box-shadow: 0 0 0 1px rgba(185,141,79,.7), 0 0 22px rgba(185,141,79,.55), 0 3px 12px rgba(0,0,0,.35); }
+  }
+  .opt.leader .label { color: var(--ink); font-weight: 500; }
+  .opt.leader .num {
+    background: var(--bronze);
+    color: #f6ecd2;
+    border-color: var(--bronze);
+  }
+  .opt.leader .label::after {
+    content: " — лидер";
+    font-size: .78em;
+    font-style: italic;
+    color: var(--bronze);
+  }
+
+  .opt.chosen {
+    background: linear-gradient(170deg, #8d3838, var(--bordeaux));
+    border-color: #5c1f1f;
+    box-shadow: 0 0 24px rgba(124, 45, 45, .6), 0 4px 14px rgba(0,0,0,.45);
+    animation: chosenStamp .55s ease both;
+  }
+  @keyframes chosenStamp {
+    0%   { transform: scale(.97); }
+    55%  { transform: scale(1.015); }
+    100% { transform: scale(1); }
+  }
+  .opt.chosen .label, .opt.chosen .votes { color: #f6ecd2; }
+  .opt.chosen .num {
+    background: #f6ecd2;
+    color: var(--bordeaux);
+    border-color: #f6ecd2;
+  }
+  .opt.chosen .label::after {
+    content: " — выбрано";
+    font-size: .78em;
+    font-style: italic;
+    color: #ecc9a0;
+  }
+
+  /* --- концовка -------------------------------------------------------- */
+  #end {
+    position: fixed; inset: 0; z-index: 5;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    gap: 1.2vh;
+    text-align: center;
+    padding: 3vh 4vw;
+    background:
+      radial-gradient(120% 90% at 50% 8%, rgba(255, 248, 224, .35), transparent 55%),
+      linear-gradient(170deg, #2f2113 0%, #1d1409 100%);
+    animation: fadeSlide .8s ease both;
+  }
+  #end-title {
+    font-family: 'Alegreya SC', Alegreya, Georgia, serif;
+    font-size: clamp(22px, 4.6vh, 42px);
+    font-weight: 700;
+    letter-spacing: .07em;
+    color: var(--band-ink);
+    text-shadow: 0 2px 8px rgba(0, 0, 0, .6);
+    max-width: 22em;
+  }
+  #end-divider {
+    color: var(--bronze-lit);
+    font-size: clamp(18px, 3.4vh, 30px);
+    letter-spacing: .5em;
+    padding-left: .5em;
+  }
+  #end-text {
+    font-size: clamp(16px, 2.9vh, 27px);
+    line-height: 1.55;
+    color: #d9c89f;
+    max-width: 27em;
+    overflow-wrap: break-word;
+  }
+
+  /* --- ошибка ---------------------------------------------------------- */
+  #error {
+    margin-top: 2.2vh;
+    text-align: center;
+    color: var(--bordeaux);
+    font-weight: 700;
+    font-size: clamp(14px, 2.4vh, 22px);
+    line-height: 1.4;
+    border-color: rgba(124, 45, 45, .6);
+  }
+
+  .hidden { display: none !important; }
+
+  /* --- демо-панель (только для просмотра макета) ----------------------- */
+  #demo {
+    position: fixed; left: 50%; bottom: 8px; transform: translateX(-50%);
+    z-index: 10;
+    display: flex; flex-wrap: wrap; justify-content: center;
+    gap: 4px;
+    max-width: 96vw;
+    padding: 5px 7px;
+    background: rgba(20, 15, 9, .82);
+    border: 1px solid rgba(185, 141, 79, .35);
+    border-radius: 8px;
+    font-family: 'Segoe UI', system-ui, sans-serif;
+    font-size: 11px;
+  }
+  #demo button {
+    font: inherit;
+    color: #cbb489;
+    background: rgba(185, 141, 79, .12);
+    border: 1px solid rgba(185, 141, 79, .35);
+    border-radius: 5px;
+    padding: 2px 8px;
+    cursor: pointer;
+  }
+  #demo button:hover { background: rgba(185, 141, 79, .3); }
+  #demo button.on { background: var(--bronze); color: #f6ecd2; }
+  #demo .sep { width: 1px; background: rgba(185, 141, 79, .3); margin: 2px 2px; }
+</style>
+</head>
+<body>
+<div id="stream-bg"></div>
+
+<div id="wrap">
+  <div id="header"></div>
+
+  <section id="select" class="hidden">
+    <div id="select-title"></div>
+    <div id="select-list"></div>
+  </section>
+
+  <section id="move" class="hidden">
+    <div id="scene" class="panel"></div>
+    <div id="options"></div>
+  </section>
+
+  <section id="sleep" class="hidden">
+    <div id="result" class="panel"></div>
+  </section>
+
+  <div id="error" class="panel hidden"></div>
+</div>
+
+<section id="end" class="hidden">
+  <div id="end-title"></div>
+  <div id="end-divider">❦ ❦ ❦</div>
+  <div id="end-text"></div>
+</section>
+
+<div id="demo"></div>
+
+<script>
+"use strict";
+const $ = id => document.getElementById(id);
+
+/* ================= демо-данные (как состояние из /state.json) ========= */
+const STORY = "Ночной обоз";
+const OPTIONS = [
+  { n: 1, label: "Готовить засаду наоборот", votes: 21, state: "leader" },
+  { n: 2, label: "Тихо увести караван в ночь", votes: 9,  state: "active" },
+  { n: 3, label: "Оставить повозки и уходить налегке", votes: 0, state: "idle" },
+];
+const CHOSEN = OPTIONS.map(o => ({ ...o, state: o.n === 1 ? "chosen" : o.state }));
+const DEMO = {
+  select: {
+    title: "Выберите историю — пишите цифру в чат",
+    items: [
+      { n: 1, label: "Ночной обоз", votes: 14, state: "leader",
+        note: "Караван должен пройти проклятый лес до рассвета. Вы — его единственный охранник." },
+      { n: 2, label: "Станция-13", votes: 6, state: "active",
+        note: "Вы просыпаетесь на станции, где никого нет, а реактор перегревается. Эвакуация — вопрос времени." },
+    ],
+  },
+  move: {
+    n: 3,
+    scene: "Разбойники! Человек десять, ждут рассвета, чтобы напасть. " +
+           "Дозорный тихо будит вас: можно встретить их организованно " +
+           "или попробовать увести караван в темноте.",
+  },
+  sleep: {
+    next: 4,
+    result: "Разбойники натыкаются на готовых к бою людей и бегут.",
+  },
+  end: {
+    label: "Отличная концовка",
+    text: "Разбойники разбежались, бросив добычу прошлых грабежей. " +
+          "Караван выходит из леса к рассвету — с солью и с трофеями.",
+  },
+  error: "Не найдено ни одной истории: папка stories/ пуста или содержит " +
+         "ошибку. Добавьте хотя бы один TOML-файл истории и перезапустите игру.",
+};
+
+/* Фазы демо: scene = ход без вариантов (только текст сцены) */
+const PHASES = {
+  select:  { sec: 42, header: s => `Выбор истории · ${s}` },
+  scene:   { sec: 6,  header: s => `«${STORY}» · Ход ${DEMO.move.n} · ${s}` },
+  move:    { sec: 25, header: s => `«${STORY}» · Ход ${DEMO.move.n} · ${s}` },
+  outcome: { sec: 4,  header: s => `«${STORY}» · Ход ${DEMO.move.n} · ${s}` },
+  sleep:   { sec: 38, header: s => `«${STORY}» · Ход ${DEMO.sleep.next} · ${s}` },
+  end:     { sec: 14, header: s => `«${STORY}» · Финал · ${s}` },
+  error:   { sec: 0,  header: () => `«Интерактивная история»` },
+};
+
+/* ================= рендер ============================================= */
+const SECTIONS = ["select", "move", "sleep", "end", "error"];
+let phase = null, secLeft = 0;
+
+function rowHTML(o, i) {
+  const d = document.createElement("div");
+  d.className = "opt" + (o.state !== "idle" ? " " + o.state : "");
+  d.style.setProperty("--i", i);
+  const body = o.note
+    ? `<span class="body"><span class="label"></span><span class="note"></span></span>`
+    : `<span class="body"><span class="label"></span></span>`;
+  d.innerHTML = `<span class="num">${o.n}</span>${body}` +
+                `<span class="votes">${o.votes > 0 ? o.votes : ""}</span>`;
+  d.querySelector(".label").textContent = o.label;
+  if (o.note) d.querySelector(".note").textContent = o.note;
+  return d;
+}
+
+function renderOptions(items) {
+  $("options").replaceChildren(...items.map(rowHTML));
+}
+
+function apply(name) {
+  phase = name;
+  secLeft = PHASES[name].sec;
+  for (const s of SECTIONS)
+    $(s).classList.toggle("hidden", s !== name);
+  if (name === "select") {
+    $("select-title").textContent = DEMO.select.title;
+    $("select-list").replaceChildren(...DEMO.select.items.map(rowHTML));
+  } else if (name === "scene") {
+    $("scene").textContent = DEMO.move.scene;
+    $("options").replaceChildren();
+  } else if (name === "move") {
+    $("scene").textContent = DEMO.move.scene;
+    renderOptions(OPTIONS);
+  } else if (name === "outcome") {
+    $("scene").textContent = DEMO.move.scene;
+    renderOptions(CHOSEN);
+  } else if (name === "sleep") {
+    $("result").textContent = DEMO.sleep.result;
+  } else if (name === "end") {
+    $("end-title").textContent = DEMO.end.label
+      ? "КОНЕЦ — " + DEMO.end.label : "КОНЕЦ";
+    $("end-text").textContent = DEMO.end.text;
+  } else if (name === "error") {
+    $("error").textContent = DEMO.error;
+  }
+  tick();
+  for (const b of document.querySelectorAll("#demo button[data-phase]"))
+    b.classList.toggle("on", b.dataset.phase === name);
+}
+
+function tick() {
+  const h = PHASES[phase].header;
+  const text = h(secLeft);
+  const el = $("header");
+  el.textContent = text;
+  // секунды выделяем классом (tabular-nums), чтобы отсчёт не дёргал ширину
+  const m = text.match(/^(.*?)(\d+)$/);
+  if (m) {
+    el.textContent = "";
+    el.append(m[1]);
+    const s = document.createElement("span");
+    s.className = "sec";
+    s.textContent = m[2];
+    el.append(s);
+  }
+}
+setInterval(() => { if (secLeft > 0) { secLeft--; tick(); } }, 1000);
+
+/* ================= демо-панель ======================================== */
+const BTNS = [
+  ["select", "1 выбор"], ["scene", "2 сцена"], ["move", "3 ход"],
+  ["outcome", "4 итог"], ["sleep", "5 сон"], ["end", "6 финал"],
+  ["error", "7 ошибка"],
+];
+const demo = $("demo");
+for (const [p, label] of BTNS) {
+  const b = document.createElement("button");
+  b.textContent = label;
+  b.dataset.phase = p;
+  b.onclick = () => apply(p);
+  demo.append(b);
+}
+const sep = document.createElement("span");
+sep.className = "sep";
+demo.append(sep);
+const bgBtn = document.createElement("button");
+bgBtn.textContent = "B фон стрима";
+bgBtn.className = "on";
+bgBtn.onclick = toggleBg;
+demo.append(bgBtn);
+
+function toggleBg() {
+  const off = document.body.classList.toggle("no-bg");
+  bgBtn.classList.toggle("on", !off);
+}
+addEventListener("keydown", e => {
+  const i = "1234567".indexOf(e.key);
+  if (i >= 0) apply(BTNS[i][0]);
+  if (e.key.toLowerCase() === "b" || e.key.toLowerCase() === "и") toggleBg();
+});
+
+apply("move");
+</script>
+</body>
+</html>

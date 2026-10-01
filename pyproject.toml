@@ -1,0 +1,18 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "streamkit"
+version = "0.1.0"
+description = "Building blocks for Twitch-interactive stream overlay apps: chat, voting, OBS overlay window"
+requires-python = ">=3.11"
+dependencies = []
+
+[project.optional-dependencies]
+twitch = ["twitchio>=2.10,<3"]
+ursina = ["ursina>=8.3.0"]
+all = ["twitchio>=2.10,<3", "ursina>=8.3.0"]
+
+[tool.setuptools]
+packages = ["streamkit", "streamkit.overlay"]

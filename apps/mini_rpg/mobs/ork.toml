@@ -1,0 +1,7 @@
+name = "Орк"
+icon = "👹"
+hp = 9
+damage_min = 3
+damage_max = 6
+xp = 18
+gold = 14

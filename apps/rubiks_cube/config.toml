@@ -1,0 +1,15 @@
+# Twitch Rubik's Cube — конфигурация (см. docs/DESIGN.md §7)
+# Все значения опциональны — при отсутствии используются дефолты ниже.
+
+channel = "namecodick"  # имя Twitch-канала (без #)
+round_duration = 15.0   # секунд на раунд голосования
+animation_duration = 2.5
+scramble_moves = 10     # глубина перемешки
+win_pause = 10.0        # пауза на экране победы
+background_color = "#FF00FF"  # хромакей для OBS (маджента: не встречается среди цветов граней)
+window_width = 800
+window_height = 900
+always_on_top = false
+mock_chat = false       # true = работа без Twitch (эмуляция чата)
+cube_tilt_x = -30.0     # наклон куба: больше по модулю — виднее верх (минус) или низ (плюс)
+cube_tilt_y = 25.0      # поворот куба: больше — виднее правая грань

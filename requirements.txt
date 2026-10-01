@@ -1,0 +1,2 @@
+ursina>=8.3.0
+twitchio>=2.10,<3

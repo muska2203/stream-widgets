@@ -1,0 +1,7 @@
+name = "Арбалет"
+icon = "🎯"
+slot = "ranged"
+damage_min = 6
+damage_max = 12
+uses = 3
+price = 25

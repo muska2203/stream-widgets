@@ -1,0 +1,427 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>Оверлей «Интерактивная история» — макет 05 · Ретро-терминал</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --amber:       #ffb000;
+    --amber-dim:   #9a7020;
+    --amber-line:  rgba(255, 176, 0, .30);
+    --amber-faint: rgba(255, 176, 0, .10);
+    --ink:         #ece3c8;
+    --ink-dim:     #a99f83;
+    --bg:          rgba(9, 8, 4, .84);
+    --bg-row:      rgba(9, 8, 4, .74);
+    --err:         #ff6a55;
+    --mono: 'JetBrains Mono', Consolas, 'Courier New', 'Segoe UI', Georgia, monospace;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; overflow: hidden; background: transparent; }
+  body {
+    font-family: var(--mono);
+    color: var(--ink);
+    -webkit-font-smoothing: antialiased;
+  }
+  /* Демо-фон «картинка стрима» (только для просмотра макета) */
+  body.bg-on {
+    background:
+      repeating-linear-gradient(0deg, rgba(0,0,0,.14) 0 2px, transparent 2px 4px),
+      radial-gradient(120% 90% at 70% 15%, #23304a 0%, #141a28 45%, #07080d 100%);
+  }
+
+  #wrap {
+    width: min(94vw, 58ch);
+    margin: 0 auto;
+    padding-top: 1vh;
+    font-size: clamp(14px, 2.2vh, 21px);
+  }
+
+  /* ── шапка ─────────────────────────────────────────────── */
+  #hdr {
+    display: flex;
+    align-items: baseline;
+    gap: .6ch;
+    background: rgba(6, 5, 2, .90);
+    border: 1px solid var(--amber-line);
+    border-bottom: 1px solid var(--amber);
+    padding: .45em .9ch;
+    font-size: 1em;
+    font-weight: 700;
+    color: var(--amber);
+    text-shadow: 0 0 7px rgba(255, 176, 0, .35);
+    white-space: nowrap;
+  }
+  #hdr .prompt { color: var(--amber-dim); }
+  #hdr-text { overflow: hidden; text-overflow: ellipsis; }
+  .cursor { animation: blink 1.1s steps(1) infinite; font-weight: 400; }
+  @keyframes blink { 50% { opacity: 0; } }
+
+  /* ── подписи-секции «── СЦЕНА ──» ─────────────────────── */
+  .cap {
+    display: flex;
+    align-items: center;
+    gap: 1ch;
+    margin-top: 1.6vh;
+    color: var(--amber-dim);
+    font-size: .68em;
+    letter-spacing: .22em;
+    text-transform: uppercase;
+  }
+  .cap::before, .cap::after {
+    content: "";
+    flex: 1;
+    border-top: 1px solid var(--amber-line);
+  }
+
+  .panel {
+    margin-top: .6vh;
+    background: var(--bg);
+    border: 1px solid var(--amber-line);
+    padding: .65em 1ch;
+    line-height: 1.5;
+    overflow-wrap: break-word;
+  }
+
+  /* ── строки позиций (варианты / истории) ──────────────── */
+  .rows { margin-top: .6vh; display: grid; gap: .8vh; }
+  .row {
+    display: grid;
+    grid-template-columns: 3.4ch 1fr 5ch;
+    gap: .8ch;
+    align-items: baseline;
+    background: var(--bg-row);
+    border: 1px solid rgba(236, 227, 200, .12);
+    padding: .42em .8ch;
+    transition: background-color .2s ease, border-color .2s ease;
+  }
+  .row .n { color: var(--amber-dim); font-weight: 700; }
+  .row .t { color: var(--ink-dim); overflow-wrap: break-word; }
+  .row .v { text-align: right; color: var(--amber); font-weight: 700; }
+  .row .desc {
+    display: block;
+    margin-top: .25em;
+    font-size: .8em;
+    line-height: 1.4;
+    color: var(--ink-dim);
+    opacity: .85;
+  }
+  .row.active { border-color: rgba(255, 176, 0, .40); }
+  .row.active .t { color: var(--ink); }
+  .row.active .n { color: var(--amber); }
+  .row.leader {
+    border-color: var(--amber);
+    background: var(--amber-faint);
+    box-shadow: inset 3px 0 0 var(--amber);
+  }
+  .row.leader .t, .row.leader .n { color: var(--ink); }
+  .row.leader .n { color: var(--amber); }
+  .row.chosen {
+    background: var(--amber);
+    border-color: var(--amber);
+    box-shadow: 0 0 18px rgba(255, 176, 0, .45);
+  }
+  .row.chosen .t, .row.chosen .n, .row.chosen .v { color: #171002; }
+
+  /* ── экран выбора ─────────────────────────────────────── */
+  #select-title {
+    margin-top: 1.6vh;
+    text-align: center;
+    color: var(--amber);
+    font-weight: 700;
+    letter-spacing: .08em;
+    text-shadow: 0 0 7px rgba(255, 176, 0, .30);
+  }
+
+  /* ── экран сна / итог ─────────────────────────────────── */
+  #result { border-style: dashed; }
+
+  /* ── экран концовки ───────────────────────────────────── */
+  #end {
+    position: fixed;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 2.2vh;
+    background: rgba(5, 4, 2, .94);
+    text-align: center;
+    padding: 2em;
+  }
+  #end-frame {
+    border: 1px solid var(--amber);
+    outline: 1px solid var(--amber-line);
+    outline-offset: 5px;
+    padding: 1.4em 2ch;
+    max-width: min(90vw, 52ch);
+  }
+  #end-title {
+    color: var(--amber);
+    font-size: clamp(20px, 4.2vh, 38px);
+    font-weight: 700;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+    text-shadow: 0 0 10px rgba(255, 176, 0, .40);
+  }
+  #end-text {
+    margin-top: 1.2em;
+    font-size: clamp(15px, 2.6vh, 24px);
+    line-height: 1.55;
+    overflow-wrap: break-word;
+  }
+
+  /* ── экран ошибки ─────────────────────────────────────── */
+  #error {
+    margin-top: 2vh;
+    background: rgba(20, 6, 4, .88);
+    border: 1px solid var(--err);
+    padding: .7em 1ch;
+    color: var(--err);
+    line-height: 1.5;
+    overflow-wrap: break-word;
+  }
+  #error::before {
+    content: "!! ОШИБКА !!";
+    display: block;
+    font-weight: 700;
+    letter-spacing: .18em;
+    margin-bottom: .4em;
+  }
+
+  .hidden { display: none !important; }
+
+  /* ── демо-панель переключения фаз (только для макета) ── */
+  #demo {
+    position: fixed;
+    left: 50%;
+    bottom: 8px;
+    transform: translateX(-50%);
+    display: flex;
+    gap: 1px;
+    align-items: center;
+    font-family: var(--mono);
+    font-size: 11px;
+    background: rgba(6, 5, 2, .9);
+    border: 1px solid var(--amber-line);
+    opacity: .45;
+    transition: opacity .2s;
+    z-index: 10;
+  }
+  #demo:hover { opacity: 1; }
+  #demo .d-label { padding: 4px 8px; color: var(--amber-dim); letter-spacing: .1em; }
+  #demo button {
+    font: inherit;
+    color: var(--ink-dim);
+    background: transparent;
+    border: none;
+    border-left: 1px solid var(--amber-line);
+    padding: 4px 8px;
+    cursor: pointer;
+  }
+  #demo button:hover { color: var(--amber); }
+  #demo button.on { color: #171002; background: var(--amber); }
+</style>
+</head>
+<body class="bg-on">
+<div id="wrap">
+  <header id="hdr"><span class="prompt">&gt;_</span><span id="hdr-text"></span><span class="cursor">█</span></header>
+
+  <section id="select" class="hidden">
+    <div id="select-title"></div>
+    <div class="cap">Истории</div>
+    <div id="select-list" class="rows"></div>
+  </section>
+
+  <section id="move" class="hidden">
+    <div class="cap">Сцена</div>
+    <div id="scene" class="panel"></div>
+    <div id="opts-block" class="hidden">
+      <div class="cap">Варианты · цифра в чат</div>
+      <div id="options" class="rows"></div>
+    </div>
+  </section>
+
+  <section id="sleep" class="hidden">
+    <div class="cap">Итог хода</div>
+    <div id="result" class="panel"></div>
+  </section>
+
+  <div id="error" class="hidden"></div>
+</div>
+
+<section id="end" class="hidden">
+  <div id="end-frame">
+    <div id="end-title"></div>
+    <div id="end-text"></div>
+  </div>
+</section>
+
+<div id="demo">
+  <span class="d-label">ДЕМО</span>
+  <button data-ph="select">1 выбор</button>
+  <button data-ph="move_text">2 сцена</button>
+  <button data-ph="move_vote">3 голоса</button>
+  <button data-ph="outcome">4 итог</button>
+  <button data-ph="sleep">5 сон</button>
+  <button data-ph="end">6 финал</button>
+  <button data-ph="error">7 ошибка</button>
+  <button id="bgbtn">B фон</button>
+</div>
+
+<script>
+"use strict";
+// ── демо-данные (структура повторяет контракт /state.json) ─────────────
+const DEMO = {
+  select: {
+    phase: "select",
+    header: "Выбор истории", sec: 18,
+    title: "Выберите историю — пишите цифру в чат",
+    items: [
+      { n: 1, label: "Станция-13", votes: 14, state: "leader",
+        desc: "Вы просыпаетесь на станции, где никого нет, а реактор перегревается. Эвакуация — вопрос времени." },
+      { n: 2, label: "Ночной обоз", votes: 6, state: "active",
+        desc: "Караван должен пройти проклятый лес до рассвета. Вы — его единственный охранник." },
+      { n: 3, label: "Маяк на краю карты", votes: 0, state: "idle", desc: "" }
+    ]
+  },
+  move_text: {
+    phase: "move",
+    header: "«Станция-13» · Ход 5", sec: 30,
+    scene: "Пульт требует решения: вручную вогнать стержни — надёжно, но придётся остаться до конца; или катапультировать активную зону — станция потеряет питание, но взрыва не будет.",
+    options: null
+  },
+  move_vote: {
+    phase: "move",
+    header: "«Станция-13» · Ход 5", sec: 21,
+    scene: "Пульт требует решения: вручную вогнать стержни — надёжно, но придётся остаться до конца; или катапультировать активную зону — станция потеряет питание, но взрыва не будет.",
+    options: [
+      { n: 1, label: "Вогнать стержни вручную", votes: 11, state: "leader" },
+      { n: 2, label: "Катапультировать активную зону", votes: 4, state: "active" },
+      { n: 3, label: "Позвать на помощь по аварийному каналу", votes: 0, state: "idle" }
+    ]
+  },
+  outcome: {
+    phase: "move",
+    header: "«Станция-13» · Ход 5", sec: 4,
+    scene: "Пульт требует решения: вручную вогнать стержни — надёжно, но придётся остаться до конца; или катапультировать активную зону — станция потеряет питание, но взрыва не будет.",
+    options: [
+      { n: 1, label: "Вогнать стержни вручную", votes: 11, state: "chosen" },
+      { n: 2, label: "Катапультировать активную зону", votes: 4, state: "active" },
+      { n: 3, label: "Позвать на помощь по аварийному каналу", votes: 0, state: "idle" }
+    ]
+  },
+  sleep: {
+    phase: "sleep",
+    header: "«Станция-13» · Ход 6", sec: 25,
+    result: "Стержни входят. Температура падает. Вы успеваете к шлюзу впритык."
+  },
+  end: {
+    phase: "end",
+    header: "«Станция-13» · Финал", sec: 9,
+    ending: {
+      label: "Героическая концовка",
+      text: "Реактор стабилизирован, «Июнь» забирает вас у шлюза. Станция-13 будет восстановлена, а на её мостике повесят вашу табличку."
+    }
+  },
+  error: {
+    phase: "error",
+    header: "«Станция-13» · Ход 1", sec: 0,
+    message: "Пул историй пуст или содержит ошибку. Добавьте файлы историй (*.toml) в папку stories/ и перезапустите игру."
+  }
+};
+
+const $ = id => document.getElementById(id);
+const SECTIONS = ["select", "move", "sleep", "end", "error"];
+let curSec = 0;
+
+function makeRow(o) {
+  const row = document.createElement("div");
+  row.className = "row" + (o.state !== "idle" ? " " + o.state : "");
+  const n = document.createElement("span");
+  n.className = "n";
+  n.textContent = "[" + o.n + "]";
+  const t = document.createElement("span");
+  t.className = "t";
+  t.textContent = o.label;
+  if (o.desc) {
+    const d = document.createElement("span");
+    d.className = "desc";
+    d.textContent = o.desc;
+    t.appendChild(d);
+  }
+  const v = document.createElement("span");
+  v.className = "v";
+  v.textContent = o.votes > 0 ? o.votes : "";
+  row.append(n, t, v);
+  return row;
+}
+
+function renderHeader(s) {
+  $("hdr-text").textContent = s.header + (s.sec > 0 ? " · " + s.sec + " с" : "");
+}
+
+function render(s) {
+  curSec = s.sec;
+  renderHeader(s);
+  const ph = s.phase;
+  for (const name of SECTIONS)
+    $(name).classList.toggle("hidden", name !== ph);
+
+  if (ph === "select") {
+    $("select-title").textContent = s.title;
+    $("select-list").replaceChildren(...s.items.map(makeRow));
+  } else if (ph === "move") {
+    $("scene").textContent = s.scene;
+    const has = Array.isArray(s.options) && s.options.length > 0;
+    $("opts-block").classList.toggle("hidden", !has);
+    if (has) $("options").replaceChildren(...s.options.map(makeRow));
+  } else if (ph === "sleep") {
+    $("result").textContent = s.result;
+  } else if (ph === "end") {
+    $("end-title").textContent = s.ending.label || "Конец";
+    $("end-text").textContent = s.ending.text;
+  } else if (ph === "error") {
+    $("error").textContent = s.message;
+  }
+
+  for (const b of document.querySelectorAll("#demo button[data-ph]"))
+    b.classList.toggle("on", b.dataset.ph === currentPhase);
+}
+
+let currentPhase = "move_vote";
+function setPhase(name) {
+  if (!DEMO[name]) return;
+  currentPhase = name;
+  render(DEMO[name]);
+}
+
+// тикающий таймер шапки: показывает, что обновление секунд не дёргает макет
+setInterval(() => {
+  if (curSec > 0) { curSec--; renderHeader({ header: DEMO[currentPhase].header, sec: curSec }); }
+}, 1000);
+
+document.querySelectorAll("#demo button[data-ph]").forEach(b =>
+  b.addEventListener("click", () => setPhase(b.dataset.ph)));
+
+const KEYS = { "1": "select", "2": "move_text", "3": "move_vote",
+               "4": "outcome", "5": "sleep", "6": "end", "7": "error" };
+document.addEventListener("keydown", e => {
+  if (KEYS[e.key]) setPhase(KEYS[e.key]);
+  else if (e.key.toLowerCase() === "b" || e.key.toLowerCase() === "и") toggleBg();
+});
+
+function toggleBg() {
+  document.body.classList.toggle("bg-on");
+  $("bgbtn").classList.toggle("on", document.body.classList.contains("bg-on"));
+}
+$("bgbtn").addEventListener("click", toggleBg);
+$("bgbtn").classList.add("on");
+
+setPhase(currentPhase);
+</script>
+</body>
+</html>

@@ -1,0 +1,555 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>Оверлей «Интерактивная история» — макет 01: Тёмный графит + золото</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Alegreya:ital,wght@0,400..900;1,400..900&family=Alegreya+Sans:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --gold: #d8b45a;
+    --gold-hi: #f2d78c;
+    --gold-dim: #9c8148;
+    --ink: #ede8db;
+    --ink-dim: #b7b2a4;
+    --graphite-1: rgba(22, 23, 29, .92);
+    --graphite-2: rgba(14, 15, 20, .94);
+    --line: rgba(216, 180, 90, .20);
+    --line-soft: rgba(255, 255, 255, .06);
+    --radius: 10px;
+    --serif: 'Alegreya', Georgia, 'Times New Roman', serif;
+    --sans: 'Alegreya Sans', 'Segoe UI', Arial, sans-serif;
+    --mono: 'Consolas', 'Courier New', monospace;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; overflow: hidden; background: transparent; }
+  body {
+    font-family: var(--sans);
+    color: var(--ink);
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  /* --- фон-заглушка «стрим» (только для демо) ------------------------- */
+  #streambg {
+    position: fixed; inset: 0; z-index: -1;
+    background:
+      radial-gradient(120% 70% at 75% 8%, rgba(64, 78, 110, .55), transparent 60%),
+      radial-gradient(90% 60% at 15% 85%, rgba(88, 60, 34, .5), transparent 55%),
+      radial-gradient(60% 45% at 60% 55%, rgba(40, 66, 60, .45), transparent 60%),
+      linear-gradient(165deg, #1a2030 0%, #141821 45%, #191410 100%);
+  }
+  body.no-bg { background:
+      repeating-conic-gradient(#2a2a2e 0% 25%, #3a3a40 0% 50%) 0 0 / 28px 28px; }
+  body.no-bg #streambg { display: none; }
+
+  /* --- колонка контента ------------------------------------------------ */
+  #wrap {
+    max-width: min(92vw, 780px);
+    margin: 0 auto;
+    padding-top: clamp(6px, 1.2vh, 14px);
+  }
+
+  /* --- шапка (видна всегда) -------------------------------------------- */
+  #header {
+    position: relative;
+    text-align: center;
+    padding: .6em 1.2em .62em;
+    font-size: clamp(14px, 2.3vh, 22px);
+    font-weight: 700;
+    letter-spacing: .07em;
+    color: var(--gold);
+    background: linear-gradient(180deg, rgba(16, 17, 22, .94), rgba(11, 12, 16, .92));
+    border: 1px solid var(--line-soft);
+    border-radius: var(--radius);
+    text-shadow: 0 1px 4px rgba(0, 0, 0, .85);
+    backdrop-filter: blur(4px);
+  }
+  #header::after {
+    content: "";
+    position: absolute; left: 8%; right: 8%; bottom: -1px; height: 1px;
+    background: linear-gradient(90deg, transparent, var(--gold) 30%, var(--gold-hi) 50%, var(--gold) 70%, transparent);
+    opacity: .85;
+  }
+
+  /* --- орнаментальная линия -------------------------------------------- */
+  .rule {
+    display: flex; align-items: center; gap: .7em;
+    margin: clamp(8px, 1.6vh, 16px) 6% clamp(6px, 1.2vh, 12px);
+    color: var(--gold-dim);
+    font-size: clamp(9px, 1.4vh, 13px);
+    text-shadow: 0 1px 3px rgba(0, 0, 0, .8);
+  }
+  .rule::before, .rule::after {
+    content: ""; flex: 1; height: 1px;
+    background: linear-gradient(90deg, transparent, rgba(216, 180, 90, .5));
+  }
+  .rule::after {
+    background: linear-gradient(90deg, rgba(216, 180, 90, .5), transparent);
+  }
+
+  /* --- панели ------------------------------------------------------------ */
+  .panel {
+    background: linear-gradient(180deg, var(--graphite-1), var(--graphite-2));
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    box-shadow: 0 6px 22px rgba(0, 0, 0, .5),
+                inset 0 1px 0 rgba(255, 255, 255, .05);
+    backdrop-filter: blur(4px);
+    padding: .85em 1.1em .95em;
+  }
+  .fade-in { animation: fadeSlide .5s ease both; }
+  @keyframes fadeSlide {
+    from { opacity: 0; transform: translateY(-7px); }
+    to   { opacity: 1; transform: none; }
+  }
+
+  /* --- текст сцены (книжная подача) -------------------------------------- */
+  #scene {
+    position: relative;
+    font-family: var(--serif);
+    font-size: clamp(15px, 2.5vh, 24px);
+    line-height: 1.5;
+    color: var(--ink);
+    overflow-wrap: break-word;
+  }
+  #scene::before {
+    content: "";
+    position: absolute; left: 0; top: 12%; bottom: 12%; width: 2px;
+    background: linear-gradient(180deg, transparent, var(--gold), transparent);
+    border-radius: 2px;
+  }
+  #scene { padding-left: 1.35em; }
+
+  /* --- подсказка над списками -------------------------------------------- */
+  .hint {
+    text-align: center;
+    color: var(--gold);
+    font-size: clamp(14px, 2.3vh, 22px);
+    font-weight: 700;
+    letter-spacing: .06em;
+    text-shadow: 0 1px 4px rgba(0, 0, 0, .85);
+  }
+
+  /* --- строки позиций (истории и варианты) -------------------------------- */
+  .list { display: flex; flex-direction: column; gap: clamp(5px, 1vh, 10px); }
+  .opt {
+    display: flex; align-items: baseline; gap: .7em;
+    padding: .5em .8em .55em .6em;
+    border-radius: var(--radius);
+    border: 1px solid var(--line-soft);
+    background: linear-gradient(180deg, rgba(20, 22, 28, .88), rgba(14, 15, 20, .90));
+    box-shadow: 0 3px 12px rgba(0, 0, 0, .4);
+    backdrop-filter: blur(3px);
+    font-size: clamp(13px, 2.2vh, 21px);
+    overflow-wrap: break-word;
+    transition: background-color .25s ease, box-shadow .25s ease,
+                border-color .25s ease;
+    animation: optIn .4s ease both;
+    animation-delay: calc(var(--i) * 60ms);
+  }
+  @keyframes optIn {
+    from { opacity: 0; transform: translateX(-12px); }
+    to   { opacity: 1; transform: none; }
+  }
+  .opt .chip {
+    flex: none;
+    align-self: center;
+    display: inline-flex; align-items: center; justify-content: center;
+    min-width: 1.55em; height: 1.55em;
+    border: 1px solid rgba(216, 180, 90, .4);
+    border-radius: 4px;
+    font-family: var(--serif);
+    font-weight: 700;
+    font-size: .92em;
+    color: var(--gold-dim);
+    background: rgba(216, 180, 90, .06);
+  }
+  .opt .body { flex: 1; min-width: 0; }
+  .opt .label { display: block; color: var(--ink-dim); line-height: 1.32; }
+  .opt .note {
+    display: block;
+    margin-top: .18em;
+    font-size: .78em;
+    line-height: 1.35;
+    color: var(--ink-dim);
+    opacity: .82;
+    overflow-wrap: break-word;
+  }
+  .opt .votes {
+    flex: none;
+    align-self: center;
+    min-width: 1.9em;
+    text-align: center;
+    padding: .08em .5em .12em;
+    border-radius: 999px;
+    font-weight: 700;
+    font-size: .88em;
+    font-variant-numeric: tabular-nums;
+    color: var(--gold);
+    border: 1px solid rgba(216, 180, 90, .35);
+    background: rgba(216, 180, 90, .10);
+  }
+  .opt .votes:empty { display: none; }
+
+  .opt.active { background: linear-gradient(180deg, rgba(31, 34, 43, .92), rgba(21, 23, 30, .92)); }
+  .opt.active .label { color: var(--ink); }
+  .opt.active .chip { color: var(--gold); border-color: rgba(216, 180, 90, .6); }
+
+  .opt.leader {
+    border-color: rgba(216, 180, 90, .45);
+    background: linear-gradient(180deg, rgba(66, 52, 26, .92), rgba(38, 30, 16, .92));
+    box-shadow: 0 0 16px rgba(216, 180, 90, .28),
+                0 3px 12px rgba(0, 0, 0, .45);
+  }
+  .opt.leader .label, .opt.leader .note { color: var(--ink); }
+  .opt.leader .chip {
+    color: var(--gold-hi);
+    border-color: var(--gold);
+    background: rgba(216, 180, 90, .14);
+  }
+
+  .opt.chosen {
+    border-color: var(--gold-hi);
+    background: linear-gradient(180deg, var(--gold-hi), var(--gold) 55%, #bd9a44);
+    box-shadow: 0 0 24px rgba(216, 180, 90, .55),
+                0 4px 16px rgba(0, 0, 0, .5);
+    animation: chosenGlow .6s ease both;
+  }
+  .opt.chosen .label, .opt.chosen .note { color: #221a09; }
+  .opt.chosen .chip {
+    color: #221a09;
+    border-color: rgba(34, 26, 9, .55);
+    background: rgba(255, 255, 255, .22);
+  }
+  .opt.chosen .votes {
+    color: #221a09;
+    border-color: rgba(34, 26, 9, .45);
+    background: rgba(255, 255, 255, .25);
+  }
+  @keyframes chosenGlow {
+    0% { transform: scale(.985); }
+    55% { transform: scale(1.015); }
+    100% { transform: scale(1); }
+  }
+
+  /* --- экран сна: итог хода ---------------------------------------------- */
+  #result {
+    font-family: var(--serif);
+    font-style: italic;
+    font-size: clamp(14px, 2.4vh, 23px);
+    line-height: 1.5;
+    text-align: center;
+    color: var(--ink);
+    border-color: rgba(216, 180, 90, .3);
+    overflow-wrap: break-word;
+  }
+  #result::before {
+    content: "«";
+    display: block;
+    font-size: 1.7em;
+    line-height: .6;
+    color: var(--gold-dim);
+    margin-bottom: .15em;
+  }
+
+  /* --- экран концовки ------------------------------------------------------ */
+  #end {
+    position: fixed; inset: 0;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    gap: .9em;
+    background: radial-gradient(90% 70% at 50% 42%, rgba(24, 22, 16, .96), rgba(8, 9, 12, .97));
+    text-align: center;
+    padding: 2em;
+    animation: fadeSlide .8s ease both;
+  }
+  #end-ornament { color: var(--gold-dim); font-size: clamp(14px, 2.4vh, 22px); letter-spacing: .5em; }
+  #end-title {
+    font-family: var(--serif);
+    color: var(--gold);
+    font-size: clamp(22px, 4.6vh, 42px);
+    font-weight: 700;
+    letter-spacing: .08em;
+    text-shadow: 0 0 26px rgba(216, 180, 90, .35), 0 2px 6px rgba(0, 0, 0, .8);
+    max-width: 22em;
+    overflow-wrap: break-word;
+  }
+  #end-text {
+    font-family: var(--serif);
+    font-size: clamp(16px, 2.8vh, 27px);
+    line-height: 1.55;
+    max-width: 25em;
+    color: var(--ink);
+    overflow-wrap: break-word;
+  }
+  #end .rule { width: min(60%, 420px); margin: .2em 0; }
+
+  /* --- экран ошибки --------------------------------------------------------- */
+  #error {
+    margin: clamp(60px, 18vh, 200px) auto 0;
+    max-width: 30em;
+    text-align: center;
+    font-size: clamp(14px, 2.4vh, 22px);
+    line-height: 1.5;
+    color: #d89a8c;
+    border-color: rgba(216, 154, 140, .3);
+    overflow-wrap: break-word;
+  }
+
+  .hidden { display: none !important; }
+
+  /* --- панель демо-переключения (только для просмотра макета) ---------------- */
+  #demo {
+    position: fixed; left: 10px; bottom: 10px; z-index: 50;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: #cfd2d8;
+    background: rgba(10, 10, 14, .78);
+    border: 1px solid rgba(255, 255, 255, .14);
+    border-radius: 8px;
+    padding: 8px 10px;
+    opacity: .45;
+    transition: opacity .2s ease;
+    max-width: 240px;
+  }
+  #demo:hover { opacity: 1; }
+  #demo .row { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+  #demo button {
+    font: inherit;
+    color: inherit;
+    background: rgba(255, 255, 255, .07);
+    border: 1px solid rgba(255, 255, 255, .16);
+    border-radius: 5px;
+    padding: 3px 7px;
+    cursor: pointer;
+  }
+  #demo button:hover { background: rgba(216, 180, 90, .25); }
+  #demo button.on { border-color: var(--gold); color: var(--gold-hi); }
+  #demo label { display: flex; align-items: center; gap: 5px; margin-top: 6px; cursor: pointer; }
+</style>
+</head>
+<body>
+<div id="streambg"></div>
+
+<div id="wrap">
+  <div id="header"></div>
+
+  <section id="select" class="hidden">
+    <div class="rule">◆</div>
+    <div class="hint" id="select-title"></div>
+    <div class="rule">◆</div>
+    <div class="list" id="select-list"></div>
+  </section>
+
+  <section id="move" class="hidden">
+    <div class="rule">◆</div>
+    <div id="scene" class="panel fade-in"></div>
+    <div class="list" id="options" style="margin-top: clamp(8px, 1.6vh, 16px);"></div>
+  </section>
+
+  <section id="sleep" class="hidden">
+    <div class="rule">◆</div>
+    <div id="result" class="panel fade-in"></div>
+  </section>
+
+  <section id="end" class="hidden">
+    <div id="end-ornament">✦ ✦ ✦</div>
+    <div id="end-title"></div>
+    <div class="rule" style="margin: 0;">◆</div>
+    <div id="end-text"></div>
+  </section>
+
+  <section id="errwrap" class="hidden">
+    <div id="error" class="panel"></div>
+  </section>
+</div>
+
+<div id="demo">
+  <div>демо-макет 01 · клавиши 1–7, B — фон</div>
+  <div class="row" id="demo-buttons"></div>
+  <label><input type="checkbox" id="bg-toggle" checked> фон стрима</label>
+</div>
+
+<script>
+"use strict";
+const $ = id => document.getElementById(id);
+
+/* --- демо-данные: реальные тексты из stories/night_convoy.toml и station_13.toml --- */
+const DEMO = {
+  select: {
+    header: "Выбор истории · {s}",
+    secs: 18,
+    title: "Выберите историю — пишите цифру в чат",
+    items: [
+      { n: 1, label: "Ночной обоз",
+        note: "Караван должен пройти проклятый лес до рассвета. Вы — его единственный охранник.",
+        votes: 7, state: "leader" },
+      { n: 2, label: "Станция-13",
+        note: "Вы просыпаетесь на станции, где никого нет, а реактор перегревается. Эвакуация — вопрос времени.",
+        votes: 3, state: "active" },
+      { n: 3, label: "Маяк на краю шторма",
+        note: "Смотритель маяка слышит в шторм голоса с затонувшего корабля.",
+        votes: 0, state: "idle" }
+    ]
+  },
+  move: {
+    header: "«Ночной обоз» · Ход 2 · {s}",
+    secs: 24,
+    scene: "В темноте между деревьями загораются жёлтые глаза — стая волков идёт по следу. До края чащи ещё далеко.",
+    options: [
+      { n: 1, label: "Зажечь факелы и идти напролом", votes: 9, state: "leader" },
+      { n: 2, label: "Тихо увести караван в сторону", votes: 4, state: "active" },
+      { n: 3, label: "Остановиться и выставить дозор", votes: 0, state: "idle" }
+    ]
+  },
+  sleep: {
+    header: "«Ночной обоз» · Ход 3 · {s}",
+    secs: 41,
+    result: "Волки не любят огонь, но один всё же прыгнул на упряжь!"
+  },
+  end: {
+    header: "«Ночной обоз» · Финал · {s}",
+    secs: 12,
+    ending: {
+      label: "Хорошая концовка",
+      text: "Рассвет застал караван у самой опушки. Соль доставлена, Гарон доволен, а вы больше никогда не пойдёте в этот лес."
+    }
+  },
+  error: {
+    header: "Интерактивная история",
+    secs: 0,
+    message: "Не найдено ни одной истории: папка stories/ пуста или содержит ошибки. Добавьте файлы историй и перезапустите игру."
+  }
+};
+
+/* Фазы демо: move-text = сцена без вариантов, outcome = голосование закрыто */
+const PHASES = [
+  { key: "1", name: "select",    label: "1 выбор" },
+  { key: "2", name: "move-text", label: "2 сцена" },
+  { key: "3", name: "move",      label: "3 голосование" },
+  { key: "4", name: "outcome",   label: "4 исход" },
+  { key: "5", name: "sleep",     label: "5 сон" },
+  { key: "6", name: "end",       label: "6 финал" },
+  { key: "7", name: "error",     label: "7 ошибка" }
+];
+
+let secs = 0, timer = null, currentHeader = "";
+
+function restartFade(el) {
+  el.classList.remove("fade-in");
+  void el.offsetWidth;
+  el.classList.add("fade-in");
+}
+
+function rowEl(o, i) {
+  const d = document.createElement("div");
+  d.className = "opt" + (o.state !== "idle" ? " " + o.state : "");
+  d.style.setProperty("--i", i);
+  const chip = document.createElement("span");
+  chip.className = "chip";
+  chip.textContent = o.n;
+  const body = document.createElement("span");
+  body.className = "body";
+  const label = document.createElement("span");
+  label.className = "label";
+  label.textContent = o.label;
+  body.appendChild(label);
+  if (o.note) {
+    const note = document.createElement("span");
+    note.className = "note";
+    note.textContent = o.note;
+    body.appendChild(note);
+  }
+  const votes = document.createElement("span");
+  votes.className = "votes";
+  votes.textContent = o.votes > 0 ? o.votes : "";
+  d.append(chip, body, votes);
+  return d;
+}
+
+function showSection(id) {
+  for (const name of ["select", "move", "sleep", "end", "errwrap"])
+    $(name).classList.toggle("hidden", name !== id);
+}
+
+function startTimer(data) {
+  clearInterval(timer);
+  secs = data.secs || 0;
+  currentHeader = data.header;
+  const paint = () => {
+    $("header").textContent = currentHeader.replace("{s}", secs + " сек");
+    if (secs > 0) secs--;
+  };
+  paint();
+  timer = setInterval(paint, 1000);
+}
+
+function setPhase(name) {
+  document.querySelectorAll("#demo-buttons button").forEach(b =>
+    b.classList.toggle("on", b.dataset.phase === name));
+
+  if (name === "select") {
+    const d = DEMO.select;
+    startTimer(d);
+    showSection("select");
+    $("select-title").textContent = d.title;
+    $("select-list").replaceChildren(...d.items.map(rowEl));
+  } else if (name === "move-text" || name === "move" || name === "outcome") {
+    const d = DEMO.move;
+    startTimer(d);
+    showSection("move");
+    $("scene").textContent = d.scene;
+    restartFade($("scene"));
+    let opts = d.options;
+    if (name === "move-text") opts = [];
+    if (name === "outcome")
+      opts = d.options.map((o, i) =>
+        i === 0 ? Object.assign({}, o, { state: "chosen" }) : o);
+    $("options").replaceChildren(...opts.map(rowEl));
+  } else if (name === "sleep") {
+    const d = DEMO.sleep;
+    startTimer(d);
+    showSection("sleep");
+    $("result").textContent = d.result;
+    restartFade($("result"));
+  } else if (name === "end") {
+    const d = DEMO.end;
+    startTimer(d);
+    showSection("end");
+    $("end-title").textContent = d.ending.label || "КОНЕЦ";
+    $("end-text").textContent = d.ending.text;
+  } else if (name === "error") {
+    const d = DEMO.error;
+    startTimer(d);
+    showSection("errwrap");
+    $("error").textContent = d.message;
+  }
+}
+
+/* --- панель демо --- */
+for (const p of PHASES) {
+  const b = document.createElement("button");
+  b.textContent = p.label;
+  b.dataset.phase = p.name;
+  b.onclick = () => setPhase(p.name);
+  $("demo-buttons").appendChild(b);
+}
+$("bg-toggle").onchange = e =>
+  document.body.classList.toggle("no-bg", !e.target.checked);
+document.addEventListener("keydown", e => {
+  if (e.key.toLowerCase() === "b" || e.key.toLowerCase() === "и") {
+    const t = $("bg-toggle");
+    t.checked = !t.checked;
+    document.body.classList.toggle("no-bg", !t.checked);
+    return;
+  }
+  const p = PHASES.find(p => p.key === e.key);
+  if (p) setPhase(p.name);
+});
+
+setPhase("move");
+</script>
+</body>
+</html>

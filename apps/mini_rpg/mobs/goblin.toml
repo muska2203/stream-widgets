@@ -1,0 +1,7 @@
+name = "Гоблин"
+icon = "👺"
+hp = 4
+damage_min = 2
+damage_max = 3
+xp = 8
+gold = 5

@@ -1,0 +1,6 @@
+name = "Боевой топор"
+icon = "🪓"
+slot = "melee"
+damage_min = 3
+damage_max = 7
+price = 18

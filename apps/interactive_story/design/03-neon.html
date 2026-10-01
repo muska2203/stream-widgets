@@ -1,0 +1,506 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>Оверлей «Интерактивная история» — макет 03 «Неон»</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Exo+2:wght@400;600;700&family=Russo+One&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --cyan: #29e6ff;
+    --cyan-dim: #57aebc;
+    --magenta: #ff3fb4;
+    --text: #e8edf4;
+    --text-dim: #a9b4c2;
+    --panel: rgba(6, 9, 16, .82);
+    --panel-line: rgba(120, 220, 255, .16);
+    --row-idle: rgba(8, 12, 20, .78);
+    --row-line: rgba(140, 200, 255, .10);
+    --radius: 10px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; overflow: hidden; background: transparent; }
+  body {
+    font-family: 'Exo 2', 'Segoe UI', sans-serif;
+    color: var(--text);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* --- демо-фон «стрима» (в OBS его нет, страница прозрачная) ---------- */
+  #stream-bg {
+    position: fixed; inset: 0; z-index: -1;
+    background:
+      radial-gradient(60% 45% at 22% 18%, rgba(64, 40, 120, .55), transparent 70%),
+      radial-gradient(55% 40% at 82% 30%, rgba(16, 90, 110, .5), transparent 70%),
+      radial-gradient(70% 55% at 50% 95%, rgba(120, 24, 90, .45), transparent 70%),
+      linear-gradient(160deg, #10131f 0%, #0a0c14 55%, #131020 100%);
+  }
+  #stream-bg::after {
+    content: "";
+    position: absolute; inset: 0;
+    background:
+      radial-gradient(24% 18% at 70% 62%, rgba(255, 200, 90, .14), transparent 70%),
+      radial-gradient(30% 22% at 30% 55%, rgba(60, 200, 255, .10), transparent 70%);
+  }
+  #stream-bg.off { display: none; }
+
+  #wrap {
+    max-width: min(94vw, 780px);
+    margin: 0 auto;
+    padding-top: clamp(8px, 1.6vh, 18px);
+  }
+
+  /* --- шапка (видна всегда) -------------------------------------------- */
+  #header {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: .6em;
+    background: rgba(5, 8, 14, .88);
+    border: 1px solid var(--panel-line);
+    border-radius: var(--radius);
+    padding: .5em 1em;
+    font-family: 'Russo One', 'Segoe UI', sans-serif;
+    font-size: clamp(15px, 2.4vh, 24px);
+    letter-spacing: .05em;
+    color: var(--cyan);
+    text-shadow: 0 0 12px rgba(41, 230, 255, .45);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  #header::before {
+    content: "";
+    width: .5em; height: .5em;
+    border-radius: 50%;
+    background: var(--magenta);
+    box-shadow: 0 0 10px var(--magenta);
+    flex: none;
+    animation: pulse 2.2s ease-in-out infinite;
+  }
+  @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
+
+  /* --- панели ------------------------------------------------------------ */
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--panel-line);
+    border-radius: var(--radius);
+    box-shadow: 0 4px 24px rgba(0, 0, 0, .5),
+                inset 0 0 24px rgba(41, 230, 255, .04);
+    padding: .85em 1.05em;
+  }
+  .micro {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: .62em;
+    letter-spacing: .28em;
+    text-transform: uppercase;
+    color: var(--cyan-dim);
+    margin-bottom: .55em;
+  }
+  .fade-in { animation: fadeSlide .5s ease both; }
+  @keyframes fadeSlide {
+    from { opacity: 0; transform: translateY(-8px); }
+    to   { opacity: 1; transform: none; }
+  }
+
+  /* --- сцена -------------------------------------------------------------- */
+  #scene {
+    margin-top: clamp(10px, 1.8vh, 18px);
+    border-left: 3px solid var(--cyan);
+    box-shadow: 0 4px 24px rgba(0, 0, 0, .5),
+                -1px 0 12px rgba(41, 230, 255, .25);
+    font-size: clamp(16px, 2.55vh, 25px);
+    line-height: 1.45;
+    overflow-wrap: break-word;
+  }
+
+  /* --- строки вариантов / историй ---------------------------------------- */
+  #options, #select-list { margin-top: clamp(8px, 1.4vh, 14px); }
+  .opt {
+    display: flex;
+    align-items: baseline;
+    gap: .65em;
+    margin-top: clamp(6px, 1.1vh, 11px);
+    padding: .5em .8em;
+    border-radius: var(--radius);
+    border: 1px solid var(--row-line);
+    background: var(--row-idle);
+    font-size: clamp(15px, 2.35vh, 23px);
+    transition: border-color .25s ease, box-shadow .25s ease,
+                background-color .25s ease;
+    animation: optIn .4s ease both;
+    animation-delay: calc(var(--i) * 60ms);
+  }
+  @keyframes optIn {
+    from { opacity: 0; transform: translateX(-12px); }
+    to   { opacity: 1; transform: none; }
+  }
+  .opt .num {
+    font-family: 'JetBrains Mono', monospace;
+    font-weight: 700;
+    color: var(--cyan-dim);
+    min-width: 1.4ch;
+    flex: none;
+  }
+  .opt .body { flex: 1; min-width: 0; overflow-wrap: break-word; }
+  .opt .label { color: var(--text-dim); }
+  .opt .desc {
+    display: block;
+    margin-top: .15em;
+    font-size: .78em;
+    line-height: 1.35;
+    color: var(--text-dim);
+    opacity: .8;
+  }
+  .opt .votes {
+    font-family: 'JetBrains Mono', monospace;
+    font-weight: 700;
+    color: var(--cyan);
+    text-shadow: 0 0 8px rgba(41, 230, 255, .5);
+    min-width: 3ch;           /* место под сотни без сдвига текста */
+    text-align: right;
+    flex: none;
+  }
+  .opt.active { background: rgba(14, 22, 34, .85); border-color: rgba(41, 230, 255, .28); }
+  .opt.active .label { color: var(--text); }
+  .opt.active .num { color: var(--cyan); }
+  .opt.leader {
+    background: rgba(12, 26, 36, .9);
+    border-color: var(--cyan);
+    box-shadow: 0 0 16px rgba(41, 230, 255, .35),
+                inset 0 0 14px rgba(41, 230, 255, .08);
+  }
+  .opt.leader .label, .opt.leader .num { color: var(--text); }
+  .opt.leader .num { color: var(--cyan); }
+  .opt.chosen {
+    background: linear-gradient(100deg, var(--cyan), var(--magenta));
+    border-color: transparent;
+    box-shadow: 0 0 26px rgba(41, 230, 255, .5),
+                0 0 40px rgba(255, 63, 180, .35);
+    animation: chosenGlow .55s ease both;
+  }
+  .opt.chosen .label, .opt.chosen .num, .opt.chosen .votes, .opt.chosen .desc {
+    color: #05080e;
+    text-shadow: none;
+    opacity: 1;
+  }
+  @keyframes chosenGlow {
+    0% { transform: scale(.97); }
+    55% { transform: scale(1.02); }
+    100% { transform: scale(1); }
+  }
+
+  /* --- выбор истории ------------------------------------------------------ */
+  #select-title {
+    margin-top: clamp(12px, 2vh, 20px);
+    text-align: center;
+    font-family: 'Russo One', 'Segoe UI', sans-serif;
+    color: var(--magenta);
+    text-shadow: 0 0 14px rgba(255, 63, 180, .45);
+    font-size: clamp(16px, 2.7vh, 26px);
+    letter-spacing: .06em;
+  }
+
+  /* --- сон / итог ---------------------------------------------------------- */
+  #result {
+    margin-top: clamp(10px, 1.8vh, 18px);
+    border-color: rgba(255, 63, 180, .22);
+    font-size: clamp(15px, 2.4vh, 23px);
+    line-height: 1.45;
+    color: var(--text-dim);
+    overflow-wrap: break-word;
+  }
+  #result .micro { color: rgba(255, 63, 180, .65); }
+
+  /* --- концовка ------------------------------------------------------------ */
+  #end {
+    position: fixed;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 1em;
+    background:
+      radial-gradient(70% 55% at 50% 45%, rgba(41, 230, 255, .10), transparent 70%),
+      rgba(4, 6, 11, .93);
+    text-align: center;
+    padding: 2em;
+    animation: fadeSlide .8s ease both;
+  }
+  #end-title {
+    font-family: 'Russo One', 'Segoe UI', sans-serif;
+    font-size: clamp(24px, 5vh, 48px);
+    letter-spacing: .08em;
+    color: var(--cyan);
+    text-shadow: 0 0 18px rgba(41, 230, 255, .7),
+                 0 0 46px rgba(255, 63, 180, .4);
+    animation: neonFlicker 4s linear infinite;
+  }
+  @keyframes neonFlicker {
+    0%, 100% { opacity: 1; }
+    92% { opacity: 1; }
+    93% { opacity: .6; }
+    94% { opacity: 1; }
+    97% { opacity: .75; }
+    98% { opacity: 1; }
+  }
+  #end-text {
+    font-size: clamp(17px, 2.9vh, 27px);
+    line-height: 1.5;
+    max-width: 26em;
+    color: var(--text);
+    overflow-wrap: break-word;
+  }
+
+  /* --- ошибка -------------------------------------------------------------- */
+  #error {
+    margin-top: clamp(12px, 2vh, 20px);
+    text-align: center;
+    font-family: 'JetBrains Mono', monospace;
+    color: #ff6b8a;
+    text-shadow: 0 0 10px rgba(255, 63, 100, .4);
+    font-size: clamp(14px, 2.3vh, 21px);
+    line-height: 1.5;
+    overflow-wrap: break-word;
+  }
+
+  .hidden { display: none !important; }
+
+  /* --- демо-панель (только для просмотра макета) --------------------------- */
+  #demo {
+    position: fixed;
+    left: 50%;
+    bottom: 10px;
+    transform: translateX(-50%);
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 5px;
+    max-width: 96vw;
+    padding: 6px 8px;
+    background: rgba(8, 10, 16, .72);
+    border: 1px solid rgba(255, 255, 255, .10);
+    border-radius: 8px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    opacity: .65;
+    transition: opacity .2s;
+    z-index: 10;
+  }
+  #demo:hover { opacity: 1; }
+  #demo button {
+    font: inherit;
+    color: #9fb4c8;
+    background: rgba(255, 255, 255, .05);
+    border: 1px solid rgba(255, 255, 255, .12);
+    border-radius: 5px;
+    padding: 3px 8px;
+    cursor: pointer;
+  }
+  #demo button:hover { color: var(--cyan); border-color: var(--cyan); }
+  #demo button.on { color: var(--cyan); border-color: var(--cyan); box-shadow: 0 0 8px rgba(41, 230, 255, .35); }
+  #demo .sep { width: 1px; background: rgba(255, 255, 255, .15); }
+</style>
+</head>
+<body>
+<div id="stream-bg"></div>
+
+<div id="wrap">
+  <div id="header"></div>
+
+  <section id="select" class="hidden">
+    <div id="select-title"></div>
+    <div id="select-list"></div>
+  </section>
+
+  <section id="move" class="hidden">
+    <div id="scene" class="panel"></div>
+    <div id="options"></div>
+  </section>
+
+  <section id="sleep" class="hidden">
+    <div id="result" class="panel"></div>
+  </section>
+
+  <section id="end" class="hidden">
+    <div id="end-title"></div>
+    <div id="end-text"></div>
+  </section>
+
+  <div id="error" class="panel hidden"></div>
+</div>
+
+<div id="demo">
+  <button data-phase="select" class="on">1 выбор</button>
+  <button data-phase="move-scene">2 сцена</button>
+  <button data-phase="move">3 голосование</button>
+  <button data-phase="outcome">4 итог хода</button>
+  <button data-phase="sleep">5 сон</button>
+  <button data-phase="end">6 финал</button>
+  <button data-phase="error">7 ошибка</button>
+  <span class="sep"></span>
+  <button id="bg-toggle" class="on">B фон стрима</button>
+</div>
+
+<script>
+"use strict";
+const $ = id => document.getElementById(id);
+
+/* Демо-данные в формате состояния игры (см. UI_SPEC.md, раздел 6). */
+const DEMO = {
+  "select": {
+    phase: "select",
+    header: "Выбор истории · 25",
+    select: {
+      title: "Выберите историю — пишите цифру в чат",
+      items: [
+        { n: 1, label: "Станция-13",
+          desc: "Вы просыпаетесь на станции, где никого нет, а реактор перегревается. Эвакуация — вопрос времени.",
+          votes: 12, state: "leader" },
+        { n: 2, label: "Ночной обоз",
+          desc: "Караван должен пройти проклятый лес до рассвета. Вы — его единственный охранник.",
+          votes: 5, state: "active" },
+        { n: 3, label: "Маяк на краю шторма",
+          desc: "Смотритель маяка пропал, а к скалам идёт корабль.",
+          votes: 0, state: "idle" }
+      ]
+    }
+  },
+  "move-scene": {
+    phase: "move",
+    header: "«Станция-13» · Ход 2 · 40",
+    scene: "Журнал корабля: экипаж эвакуировался шесть часов назад из-за сбоя реактора. Последняя запись капитана обрывается на полуслове. Связь молчит — антенна смотрит в пустоту.",
+    options: []
+  },
+  "move": {
+    phase: "move",
+    header: "«Станция-13» · Ход 2 · 40",
+    scene: "Журнал корабля: экипаж эвакуировался шесть часов назад из-за сбоя реактора. Последняя запись капитана обрывается на полуслове. Связь молчит — антенна смотрит в пустоту.",
+    options: [
+      { n: 1, label: "На мостик — узнать, что случилось", votes: 3, state: "active" },
+      { n: 2, label: "В лабораторию — там был эксперимент", votes: 9, state: "leader" },
+      { n: 3, label: "В грузовой отсек — собрать припасы", votes: 0, state: "idle" }
+    ]
+  },
+  "outcome": {
+    phase: "move",
+    header: "«Станция-13» · Ход 2 · 5",
+    scene: "Журнал корабля: экипаж эвакуировался шесть часов назад из-за сбоя реактора. Последняя запись капитана обрывается на полуслове. Связь молчит — антенна смотрит в пустоту.",
+    options: [
+      { n: 1, label: "На мостик — узнать, что случилось", votes: 3, state: "active" },
+      { n: 2, label: "В лабораторию — там был эксперимент", votes: 9, state: "chosen" },
+      { n: 3, label: "В грузовой отсек — собрать припасы", votes: 0, state: "idle" }
+    ]
+  },
+  "sleep": {
+    phase: "sleep",
+    header: "«Станция-13» · Ход 3 · 55",
+    result: "Дверь лаборатории приоткрыта. Это плохой знак."
+  },
+  "end": {
+    phase: "end",
+    header: "«Станция-13» · Финал · 10",
+    ending: {
+      label: "Героическая концовка",
+      text: "Реактор стабилизирован, «Июнь» забирает вас у шлюза. Станция-13 будет восстановлена, а на её мостике повесят вашу табличку."
+    }
+  },
+  "error": {
+    phase: "error",
+    header: "«Интерактивная история»",
+    select: { message: "Ошибка: не удалось загрузить ни одной истории. Проверьте папку stories/ и синтаксис TOML-файлов." }
+  }
+};
+
+const SECTIONS = ["select", "move", "sleep", "end", "error"];
+
+function restartFade(el) {
+  el.classList.remove("fade-in");
+  void el.offsetWidth;
+  el.classList.add("fade-in");
+}
+
+function rowEl(o, i) {
+  const d = document.createElement("div");
+  d.className = "opt" + (o.state !== "idle" ? " " + o.state : "");
+  d.style.setProperty("--i", i);
+  const num = document.createElement("span");
+  num.className = "num";
+  num.textContent = o.n + ".";
+  const body = document.createElement("span");
+  body.className = "body";
+  const label = document.createElement("span");
+  label.className = "label";
+  label.textContent = o.label;
+  body.appendChild(label);
+  if (o.desc) {
+    const desc = document.createElement("span");
+    desc.className = "desc";
+    desc.textContent = o.desc;
+    body.appendChild(desc);
+  }
+  const votes = document.createElement("span");
+  votes.className = "votes";
+  votes.textContent = o.votes > 0 ? o.votes : "";
+  d.append(num, body, votes);
+  return d;
+}
+
+function render(key) {
+  const s = DEMO[key];
+  $("header").textContent = s.header || "";
+  for (const name of SECTIONS)
+    $(name).classList.toggle("hidden", name !== s.phase);
+
+  if (s.phase === "select") {
+    $("select-title").textContent = s.select.title;
+    $("select-list").replaceChildren(...s.select.items.map(rowEl));
+  } else if (s.phase === "move") {
+    const sc = $("scene");
+    sc.textContent = s.scene;
+    restartFade(sc);
+    $("options").replaceChildren(...s.options.map(rowEl));
+  } else if (s.phase === "sleep") {
+    const r = $("result");
+    r.replaceChildren();
+    const micro = document.createElement("div");
+    micro.className = "micro";
+    micro.textContent = "Итог хода";
+    const text = document.createElement("div");
+    text.textContent = s.result;
+    r.append(micro, text);
+    restartFade(r);
+  } else if (s.phase === "end") {
+    $("end-title").textContent = s.ending.label || "КОНЕЦ";
+    $("end-text").textContent = s.ending.text;
+  } else if (s.phase === "error") {
+    $("error").textContent = s.select.message || "";
+  }
+
+  document.querySelectorAll("#demo [data-phase]").forEach(b =>
+    b.classList.toggle("on", b.dataset.phase === key));
+}
+
+const KEYS = { "1": "select", "2": "move-scene", "3": "move",
+               "4": "outcome", "5": "sleep", "6": "end", "7": "error" };
+
+document.querySelectorAll("#demo [data-phase]").forEach(b =>
+  b.addEventListener("click", () => render(b.dataset.phase)));
+
+$("bg-toggle").addEventListener("click", toggleBg);
+function toggleBg() {
+  const off = $("stream-bg").classList.toggle("off");
+  $("bg-toggle").classList.toggle("on", !off);
+}
+
+document.addEventListener("keydown", e => {
+  if (KEYS[e.key]) render(KEYS[e.key]);
+  else if (e.key.toLowerCase() === "b" || e.key.toLowerCase() === "и") toggleBg();
+});
+
+render("select");
+</script>
+</body>
+</html>

@@ -1,0 +1,51 @@
+# AGENTS.md
+
+Монорепо стрим-приложений: библиотека `streamkit/` (чат Twitch, голосование,
+окно-оверлей для OBS, конфиг; pip-пакет по `pyproject.toml`) и приложения
+в `apps/<name>/`, каждое в своей директории со своими `core/`, `tests/`,
+`tools/`, `docs/`, `config.toml`. Сейчас: `apps/rubiks_cube/` — чат Twitch
+голосует командами (`u1`, `r2`, `wu`...) за ходы кубика Рубика;
+`apps/interactive_story/` — чат голосует цифрами (`1`..`9`) за варианты
+действий в древовидной истории (истории — TOML-файлы в `stories/`, между
+ходами игра «засыпает» и прячет UI). История — консольное приложение без
+окна: оверлей — веб-страница (`webui.py` + `server.py` +
+`web/overlay.html`) для OBS Browser Source, ursina там не используется
+(окно-оверлей `streamkit.overlay` остаётся для кубика).
+`apps/mini_rpg/` — чат ведёт героя через бесконечный забег: двери-события
+(мобы, магазин, зона отдыха), бои с блоками по направлениям, прокачка
+статов, магазин. Консольное приложение без окна, как история: оверлей —
+веб-страница (`webui.py` + `server.py` + `web/overlay.html`) для OBS
+Browser Source с прозрачной рамкой аватарки под камеру стримера.
+
+Изменения в `streamkit/` не должны привязывать её к специфике конкретного
+приложения. При изменении структуры/команд обнови этот файл и README.md.
+
+`packaging/` — сборка `apps/interactive_story/` в portable Windows ZIP
+(PyInstaller onedir): `build_zip.bat` → `dist/InteractiveStory-win64.zip`.
+В frozen-сборке пользовательские файлы (`config.toml`, `.env`, `stories/`)
+лежат рядом с exe (первый запуск копирует дефолты из бандла и при
+необходимости открывает мастер настройки канала/токена); переключение путей
+dev/frozen — только через `streamkit/paths.py`
+(`frozen_app_dir`/`bundled_defaults_dir`/`bundled_dir`), в dev поведение
+путей не меняется.
+
+**Перед работой в приложении прочитать его docs:** для кубика —
+`apps/rubiks_cube/docs/DEVELOPMENT.md` (контракты модулей, калибровка
+рендера, известные грабли, паттерн верификации скриншотами) и
+`apps/rubiks_cube/docs/DESIGN.md` (концепция и правила); для истории —
+`apps/interactive_story/docs/DEVELOPMENT.md` и
+`apps/interactive_story/docs/DESIGN.md`; для мини-RPG —
+`apps/mini_rpg/docs/DESIGN.md` и `apps/mini_rpg/docs/DEVELOPMENT.md`
+(контракты модулей, грабли); история реализации с отклонениями —
+`apps/mini_rpg/docs/PLAN.md` (агенты отмечают прогресс прямо в нём).
+
+Среда: Windows, запуск через `py` (НЕ `python`), все команды — из корня репо.
+Тесты: `py -m unittest discover` — должны быть зелёными до и после изменений.
+Приложения и UI-проверки (`py -m apps.rubiks_cube`,
+`apps/rubiks_cube/tools/ui_check.py`, `apps/rubiks_cube/tools/render_check.py`,
+`py -m apps.interactive_story`, `py -m apps.mini_rpg`)
+агент сам НЕ запускает: UI проверяет пользователь и прикрепляет скриншоты
+при проблемах (оверлей истории и мини-RPG — в браузере/OBS по адресу из
+консоли). Исключение — консольный smoke `py -m apps.mini_rpg --smoke`
+(20 с, мок-чат, живой Twitch не трогает), его агент запускает сам.
+Секреты только в `.env` (gitignored), никогда не читать/не пересылать.

@@ -1,0 +1,5 @@
+name = "Кольчуга"
+icon = "🛡️"
+slot = "armor"
+armor = 2
+price = 20
