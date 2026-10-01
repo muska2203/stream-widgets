@@ -1,4 +1,4 @@
-# StreamTest — библиотека streamkit + мини-приложения для Twitch
+# StreamWidgets — библиотека streamkit + мини-приложения для Twitch
 
 Монорепо интерактивных стрим-приложений:
 
