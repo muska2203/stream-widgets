@@ -17,9 +17,12 @@ AGENTS.md (тесты `py -m unittest discover`, агент не запуска�
   передаётся аргументом в `roll_damage(slot, rng)`.
 - `core/content.py` — загрузка пулов: `load_mob(path)`, `load_item(path)`,
   `discover_mobs(dir)`, `discover_items(dir)`, `load_mobs/load_items`,
-  `ContentError`. Валидация при загрузке (обязательные поля,
-  `damage_max >= damage_min`, корректный `slot`) — битый файл роняет игру
-  в экран ошибки с понятным сообщением, как в истории.
+  `load_prefixes(path)` (список префиксов боевых кличек из одного TOML;
+  отсутствующий файл/пустой список → встроенный `DEFAULT_PREFIXES`, битый
+  TOML → `ContentError`), `ContentError`. Валидация при загрузке
+  (обязательные поля, `damage_max >= damage_min`, корректный `slot`) —
+  битый файл роняет игру в экран ошибки с понятным сообщением, как в
+  истории.
 - `core/combat.py` — `Combat(hero, mob, rng)`: автомат одного боя,
   `hero_turn(weapon, direction)` / `hero_skip()` / `mob_turn(defense|None)`
   → `TurnResult`; `rewards` (скейл), `finished`, `hero_won`. Ничего не
@@ -38,21 +41,34 @@ AGENTS.md (тесты `py -m unittest discover`, агент не запуска�
   `attack_choice` → (weapon, direction), `defense_choice` → direction,
   `levelup_choice` → STATS[i].
 - `core/__main__.py` — CLI-проверка пулов: `py -m apps.mini_rpg.core
-  [mobs_dir [items_dir]]`, exit 1 при ошибках/пустом пуле; stdout в
+  [mobs_dir [items_dir [prefixes_path]]]` (мобы, предметы, префиксы),
+  exit 1 при ошибках/пустом пуле; stdout в
   `errors="replace"` — консоль cp1251 не печатает эмодзи иконок.
 - `config.py` — `@dataclass Config` + `load_config()` (streamkit
   `load_toml_config`; неизвестные ключи TOML игнорируются).
-- `game.py` — `Game(cfg, ui=None, mobs_dir=..., items_dir=...)`: автомат
+- `game.py` — `Game(cfg, ui=None, mobs_dir=..., items_dir=...,
+  prefixes_path=..., chatters=...)`: автомат
   RUN_START (транзитный — конструктор сразу входит в EVENT) / EVENT /
   COMBAT (подфазы attack/defense/outcome/end) / SHOP / REST / LEVELUP /
   GAME_OVER / ERROR (пулы битые/пусты). Единая точка входа чата
-  `handle_chat_message(user, text)`. Чистый Python: главный цикл в
-  `main.py` зовёт `game.update(dt)`. Дверь — `@dataclass Door(kind, mob)`
-  с иконкой/именем (у моба — его, у магазина/отдыха — свои из DOOR_VIEW);
+  `handle_chat_message(user, text)` — первой строкой регистрирует автора в
+  `chatters` (реестр `streamkit.ChatterRegistry`: база ников пишущих,
+  приоритет активных за сессию, фолбэк на всю базу). Боевые клички мобов:
+  `enter_combat` переименовывает моба копией (`replace(mob, name=...)`) в
+  «Префикс Ник» (тип виден по иконке; без базы — «Префикс Тип») — Combat
+  дальше копирует имя сам через scale_mob, а дверной mob не мутирует. Клички убитых копятся в `defeated` и уходят в
+  `run_summary` (список «поверженных» на экране итогов). Чистый Python:
+  главный цикл в `main.py` зовёт `game.update(dt)`. Дверь —
+  `@dataclass Door(kind, mob)` с иконкой/именем (у моба — его, у
+  магазина/отдыха — свои из DOOR_VIEW);
   моб-дверь уже отскейлена под уровень героя (`scale_mob` при броске
   дверей).
-  Шов оверлея — интерфейс `NullUI` (show_*/update_votes/update_timer),
-  реализация — `webui.WebUI`.
+  Шов оверлея — интерфейс `NullUI` (show_*/update_votes/update_timer/
+  show_tie_resolve), реализация — `webui.WebUI`. `update_votes` получает
+  `leaders` списком — при ничьей подсвечиваются все лидеры; конец раунда
+  оборачивается в `_resolve_end`: единственный лидер применяется сразу,
+  ничья откладывает исход (`_pending_end`) на `tie_resolve_pause`, пока
+  оверлей крутит рулетку, — применяет отложенный исход `update()`.
 - `webui.py` — `WebUI(game)`: модель состояния оверлея (чистый Python,
   без сети), атомарная публикация снапшота (deepcopy + своп ссылки), как
   в `interactive_story/webui.py`. Читает Game при публикации (панель
@@ -65,7 +81,10 @@ AGENTS.md (тесты `py -m unittest discover`, агент не запуска�
   диапазон урона, у команд атаки — иконка/название оружия и `detail`
   («урон 2–4 +3 силы · зарядов: 4»), у итога хода — название оружия и
   броня героя, у товаров магазина — `slot_name`/`detail`/`current`
-  (сравнение с экипированным). Диапазоны — через en-тире «–».
+  (сравнение с экипированным). Диапазоны — через en-тире «–». Блок
+  `resolve` (ничья: leaders/winner/duration для рулетки) живёт ровно одну
+  публикацию — повторная ничья с тем же составом должна перезапускать
+  анимацию.
 - `server.py` — `OverlayServer(ui, port, host="127.0.0.1")`:
   ThreadingHTTPServer в daemon-потоке, `/` и `/overlay.html` →
   `web/overlay.html` (путь рядом с пакетом), `/state.json` → снапшот
@@ -75,8 +94,10 @@ AGENTS.md (тесты `py -m unittest discover`, агент не запуска�
   появится только с реальным вторым идентичным клиентом.
 - `web/overlay.html` — самодостаточная страница (CSS+JS inline, Rubik
   с фолбэком system-ui/sans-serif, опрос `/state.json` каждые 200 мс)
-  в «комикс»-стиле по макету `designs/comic.html` (бумажные карточки,
-  жирная чёрная обводка, твёрдые тени; служебные элементы макета —
+  в «комикс»-стиле по макету `designs/comic-v1.html` (приглушённая
+  серо-бежево-пыльная палитра, единственный яркий акцент — клавиши
+  вариантов `.key` и лидер голосования; бумажные карточки, жирная
+  чёрная обводка, твёрдые тени; служебные элементы макета —
   devbar, превью OBS, заглушка камеры — в прод не переносятся): слева
   постоянная панель героя (прозрачная рамка аватарки — под неё в OBS
   кладётся камера, звёздный бейдж уровня, полосы HP/маны/опыта, чип
@@ -85,8 +106,16 @@ AGENTS.md (тесты `py -m unittest discover`, агент не запуска�
   (двери, карточка моба + команды + итог хода, прокачка, магазин,
   отдых, итог забега, ошибка). DOM пересобирается только по структурным
   подписям (голоса/HP/таймер — точечно). Python про пиксели ничего не
-  знает.
-- `main.py` — entry point: конфиг → `Game(cfg)` → `WebUI(game)` →
+  знает. Рулетка при ничьей — JS поверх точечных обновлений
+  (`startRoulette` по блоку `resolve` из снапшота): лидеры моргают по
+  очереди, паузы между вспышками нарастают (торможение к финалу),
+  остановка на `winner`; пока `rouletteActive`, классом `.leader` владеет
+  анимация (`updateRows` его не трогает), таймер скрыт; отпускает
+  рулетку `apply()`, когда голоса/состояния в снапшоте сменились —
+  Python применил победителя.
+- `main.py` — entry point: конфиг → реестр чаттеров (живой Twitch —
+  `ChatterRegistry(chatters.json)` с персистом, мок-режим — в памяти, чтобы
+  viewerN не засоряли файл) → `Game(cfg)` → `WebUI(game)` →
   `game.ui = ui` → чат → `OverlayServer` → цикл на `time.monotonic` ~60 Гц
   (`chat.update(dt)` + `game.update(dt)`), `server.stop()` в finally.
   Чат создаётся здесь, а не внутри Game (отличие от истории): `MockChat`
@@ -110,6 +139,13 @@ AGENTS.md (тесты `py -m unittest discover`, агент не запуска�
   голосования с тем же составом (игра ждёт); в бою — пропуск хода (атака
   без удара / защита без блока), бой не встаёт; в магазине — выход без
   покупки.
+- Ничья: `_resolve_end` (обёртка коллбэка раунда в `_open_vote`) при
+  ≥2 лидерах обнуляет `vote_loop`, ставит `time_left =
+  cfg.tie_resolve_pause`, складывает исход в `_pending_end` и зовёт
+  `ui.show_tie_resolve(leaders, winner)`; `update()` по истечении паузы
+  шлёт `update_votes(counts, [winner])` (в UI остаётся один победитель) и
+  вызывает отложенный коллбэк. Во время паузы чат игнорируется
+  (`vote_loop is None`), фаза на экране не меняется.
 - Итог каждого хода боя (удар/блок, цифры урона) показывается паузой
   `combat_outcome_pause` (подфаза outcome) до открытия следующего
   голосования — иначе результат мгновенно сменится новой фазой.
@@ -118,7 +154,8 @@ AGENTS.md (тесты `py -m unittest discover`, агент не запуска�
   показывает «Победа!». До UI подфаза `end` доходит без вызова ui:
   подфаза и HP моба синкаются из Game в `WebUI._publish()`.
 - Пулы `mobs/` и `items/` перечитываются при каждом входе в EVENT —
-  состав меняется без рестарта игры.
+  состав меняется без рестарта игры. Там же перечитывается
+  `prefixes.toml` (префиксы боевых кличек).
 - Набор дверей — по правилу из DESIGN.md «Типы событий»: сначала подтип
   каждой двери (моб с шансом `MOB_CHANCE` = 70%, иначе интерактив —
   случайный из зоны отдыха и магазина, магазин только если пул предметов
@@ -171,6 +208,12 @@ HP-полосы, текущий ход и варианты команд, ито�
   переводит stdout в `errors="replace"`.
 - В TOML запятая после значения — синтаксическая ошибка; при ручном
   редактировании контента прогонять `py -m apps.mini_rpg.core`.
+- `prefixes.toml` нельзя класть внутрь `mobs/` или `items/` — discover_*
+  поднимет его как моба/предмет и уронит игру в экран ошибки. Файл лежит
+  рядом с пакетом.
+- Боевая кличка присваивается мобу до создания `Combat` (`replace(mob,
+  name=...)` в `enter_combat`): `Combat.__init__` копирует моба через
+  `scale_mob`, поэтому переименовывать надо до, а не после.
 
 ## Portable-сборка
 

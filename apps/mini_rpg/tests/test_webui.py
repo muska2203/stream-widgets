@@ -89,11 +89,35 @@ class WebUITest(unittest.TestCase):
         self.assertTrue(all(d["votes"] == 0 and d["state"] == "idle"
                             for d in shown))
 
-        ui.update_votes({"1": 2, "3": 1}, leader="1")
+        ui.update_votes({"1": 2, "3": 1}, ["1"])
         shown = snapshot(ui)["event"]["doors"]
         self.assertEqual((shown[0]["votes"], shown[0]["state"]), (2, "leader"))
         self.assertEqual(shown[1]["state"], "idle")
         self.assertEqual((shown[2]["votes"], shown[2]["state"]), (1, "active"))
+
+    def test_event_tie_all_leaders_highlighted(self):
+        doors = [Door("mob", make_mob(name="Гоблин")),
+                 Door("mob", make_mob(name="Скелет", icon="💀")),
+                 Door("shop")]
+        ui = WebUI(make_game(doors=doors))
+        ui.update_votes({"1": 2, "3": 2, "2": 1}, ["1", "3"])
+        shown = snapshot(ui)["event"]["doors"]
+        self.assertEqual([d["state"] for d in shown],
+                         ["leader", "active", "leader"])
+
+    def test_tie_resolve_block_lives_one_snapshot(self):
+        doors = [Door("mob", make_mob(name="Гоблин")), Door("shop"),
+                 Door("rest")]
+        ui = WebUI(make_game(doors=doors, time_left=3.0))
+        ui.show_tie_resolve(["1", "3"], "3")
+        resolve = snapshot(ui)["resolve"]
+        self.assertEqual(resolve["leaders"], ["1", "3"])
+        self.assertEqual(resolve["winner"], "3")
+        self.assertEqual(resolve["duration"], 3.0)
+        # блок живёт одну публикацию: следующая — уже без него,
+        # чтобы повторная ничья перезапускала анимацию
+        ui.show_error("поздняя публикация")
+        self.assertIsNone(snapshot(ui)["resolve"])
 
     def test_combat_attack_commands(self):
         game = make_game(state="combat", combat_phase="attack")
@@ -133,7 +157,7 @@ class WebUITest(unittest.TestCase):
         self.assertEqual(labels, ["Защитить голову", "Защитить тело",
                                   "Защитить ноги"])
 
-        ui.update_votes({"2": 4}, leader="2")
+        ui.update_votes({"2": 4}, ["2"])
         commands = snapshot(ui)["combat"]["commands"]
         self.assertEqual((commands[1]["votes"], commands[1]["state"]),
                          (4, "leader"))
@@ -220,7 +244,7 @@ class WebUITest(unittest.TestCase):
                                       "votes": 0, "state": "idle"})
         self.assertEqual(options[4]["key"], "luck")
 
-        ui.update_votes({"5": 3, "1": 1}, leader="5")
+        ui.update_votes({"5": 3, "1": 1}, ["5"])
         options = snapshot(ui)["levelup"]["options"]
         self.assertEqual((options[4]["votes"], options[4]["state"]),
                          (3, "leader"))
@@ -250,7 +274,7 @@ class WebUITest(unittest.TestCase):
                          {"n": 0, "label": "Выйти", "votes": 0,
                           "state": "idle"})
 
-        ui.update_votes({"1": 2, "0": 1}, leader="1")
+        ui.update_votes({"1": 2, "0": 1}, ["1"])
         shop = snapshot(ui)["shop"]
         self.assertEqual((shop["items"][0]["votes"],
                           shop["items"][0]["state"]), (2, "leader"))
@@ -268,7 +292,8 @@ class WebUITest(unittest.TestCase):
         self.assertEqual(s["hero"]["hp"], 5)  # панель героя живая
 
     def test_gameover(self):
-        summary = {"level": 3, "kills": 5, "gold_earned": 42}
+        summary = {"level": 3, "kills": 5, "gold_earned": 42,
+                   "defeated": ["Гнусный viewer1"]}
         ui = WebUI(make_game(state="game_over", run_summary=summary))
         s = snapshot(ui)
         self.assertEqual(s["phase"], "game_over")
@@ -301,7 +326,7 @@ class WebUITest(unittest.TestCase):
         before = snapshot(ui)
 
         game.hero.hp = 7
-        ui.update_votes({"1": 5}, leader="1")
+        ui.update_votes({"1": 5}, ["1"])
         ui.show_error("позднее состояние")
 
         self.assertEqual(before["phase"], "event")

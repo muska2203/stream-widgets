@@ -13,13 +13,15 @@ import random
 from dataclasses import dataclass, replace
 from pathlib import Path
 
-from streamkit import VoteLoop
+from streamkit import ChatterRegistry, VoteLoop
 
 from apps.mini_rpg.config import Config
-from apps.mini_rpg.core import (DEFAULT_ITEMS_DIR, DEFAULT_MOBS_DIR, Combat,
-                                ContentError, Hero, Item, Mob, TurnResult,
-                                attack_choice, defense_choice, levelup_choice,
-                                load_items, load_mobs, make_attack_validator,
+from apps.mini_rpg.core import (DEFAULT_ITEMS_DIR, DEFAULT_MOBS_DIR,
+                                DEFAULT_PREFIXES, DEFAULT_PREFIXES_PATH,
+                                Combat, ContentError, Hero, Item, Mob,
+                                TurnResult, attack_choice, defense_choice,
+                                levelup_choice, load_items, load_mobs,
+                                load_prefixes, make_attack_validator,
                                 make_defense_validator, make_door_validator,
                                 make_levelup_validator, make_shop_validator,
                                 new_hero, scale_mob)
@@ -84,7 +86,11 @@ class NullUI:
     def show_error(self, message: str) -> None:
         pass
 
-    def update_votes(self, counts: dict[str, int], leader: str | None) -> None:
+    def update_votes(self, counts: dict[str, int], leaders: list[str]) -> None:
+        pass
+
+    def show_tie_resolve(self, leaders: list[str], winner: str) -> None:
+        """Tie at round end: roulette among the leaders lands on winner."""
         pass
 
     def update_timer(self) -> None:
@@ -95,17 +101,23 @@ class NullUI:
 class Game:
     def __init__(self, cfg: Config, ui: NullUI | None = None,
                  mobs_dir: str | Path = DEFAULT_MOBS_DIR,
-                 items_dir: str | Path = DEFAULT_ITEMS_DIR):
+                 items_dir: str | Path = DEFAULT_ITEMS_DIR,
+                 prefixes_path: str | Path = DEFAULT_PREFIXES_PATH,
+                 chatters: ChatterRegistry | None = None):
         self.cfg = cfg
         self.rng = random.Random(cfg.seed)
         self.ui = ui or NullUI()
         self.mobs_dir = mobs_dir
         self.items_dir = items_dir
+        self.prefixes_path = prefixes_path
+        # None → реестр только в памяти (тесты); файл решает main.py
+        self.chatters = chatters or ChatterRegistry()
         self.state = ""
         self.vote_loop: VoteLoop | None = None
         self.hero: Hero | None = None
         self.doors: list[Door] = []
         self.items_pool: list[Item] = []   # перечитывается на каждом EVENT
+        self.prefixes: list[str] = list(DEFAULT_PREFIXES)  # там же
         self.shop_items: list[Item] = []   # товары текущего магазина
         self.combat: Combat | None = None
         self.combat_phase = ""
@@ -113,9 +125,12 @@ class Game:
         self.pending_levelups = 0
         self.kills = 0                 # убито мобов за забег
         self.gold_earned = 0           # заработано золота за забег
+        self.defeated: list[str] = []  # боевые клички поверженных за забег
         self.run_summary: dict | None = None
         self.error_message = ""
         self.time_left = 0.0           # единый countdown текущей фазы
+        # отложенный коллбэк конца раунда на время рулетки при ничьей
+        self._pending_end = None
         self.enter_run_start()
 
     # --- run / event -----------------------------------------------------
@@ -126,13 +141,14 @@ class Game:
         self.hero = new_hero(self.cfg.base_hp)
         self.kills = 0
         self.gold_earned = 0
+        self.defeated = []
         self.pending_levelups = 0
         self.run_summary = None
         print("new run started", flush=True)
         self.enter_event()
 
     def enter_event(self) -> None:
-        """3 doors with mixed events; both pools reload on every entry."""
+        """3 doors with mixed events; pools and prefixes reload on entry."""
         self.combat = None
         self.last_turn = None
         try:
@@ -148,6 +164,11 @@ class Game:
             self.items_pool = load_items(self.items_dir)
         except ContentError as e:
             self._enter_error(f"Ошибка пула предметов: {e}")
+            return
+        try:
+            self.prefixes = load_prefixes(self.prefixes_path)
+        except ContentError as e:
+            self._enter_error(f"Ошибка файла префиксов: {e}")
             return
         self.doors = self._roll_doors(mobs)
         self.state = EVENT
@@ -181,7 +202,7 @@ class Game:
         if winner is None:  # никто не голосовал — те же двери, новый раунд
             print("no votes, restarting door vote", flush=True)
             self._open_door_vote()
-            self.ui.update_votes({}, None)
+            self.ui.update_votes({}, [])
             return
         door = self.doors[int(winner) - 1]
         print(f"door {winner}: {door.name} ({n_voters} voters)", flush=True)
@@ -195,12 +216,23 @@ class Game:
     # --- combat ----------------------------------------------------------
 
     def enter_combat(self, mob: Mob) -> None:
-        # mob уже отскейлен при броске дверей — без повторного скейла
+        # mob уже отскейлен при броске дверей — без повторного скейла.
+        # Боевая кличка присваивается копией (replace): дверной mob не трогаем;
+        # Combat скопирует её дальше через scale_mob(level_scale=0).
+        mob = replace(mob, name=self._battle_name(mob))
         self.combat = Combat(self.hero, mob, self.rng, level_scale=0)
         self.state = COMBAT
         print(f"combat started: {mob.name} (hero hp {self.hero.hp})",
               flush=True)
         self._open_attack_vote()
+
+    def _battle_name(self, mob: Mob) -> str:
+        """«Префикс Ник»; без базы чаттеров — «Префикс Тип»."""
+        prefix = self.rng.choice(self.prefixes)
+        nick = self.chatters.pick(self.rng)
+        if nick is not None:
+            return f"{prefix} {nick}"
+        return f"{prefix} {mob.name}"
 
     def _open_attack_vote(self) -> None:
         self.combat_phase = ATTACK
@@ -253,6 +285,7 @@ class Game:
         xp, gold = self.combat.rewards
         self.kills += 1
         self.gold_earned += gold
+        self.defeated.append(self.combat.mob.name)
         self.hero.gold += gold
         self.pending_levelups = self.hero.gain_xp(xp)
         print(f"combat won: +{xp} xp, +{gold} gold "
@@ -324,7 +357,7 @@ class Game:
         if winner is None:  # игра ждёт: окно перезапускается
             print("no votes, restarting levelup vote", flush=True)
             self._open_levelup_vote()
-            self.ui.update_votes({}, None)
+            self.ui.update_votes({}, [])
             return
         stat = levelup_choice(winner)
         self.hero.level_up(stat)
@@ -343,7 +376,8 @@ class Game:
         self.vote_loop = None
         self.time_left = self.cfg.gameover_pause
         self.run_summary = {"level": self.hero.level, "kills": self.kills,
-                            "gold_earned": self.gold_earned}
+                            "gold_earned": self.gold_earned,
+                            "defeated": list(self.defeated)}
         self.ui.show_gameover(self.run_summary)
         print(f"game over: {self.run_summary}", flush=True)
 
@@ -358,12 +392,13 @@ class Game:
 
     def handle_chat_message(self, user: str, text: str) -> None:
         """Single entry point for chat commands (mock chat or Twitch)."""
+        # любой написавший попадает в базу чаттеров — до фильтрации по фазе
+        self.chatters.add(user)
         if self.vote_loop is None or not self.vote_loop.active:
             return
         if self.vote_loop.vote(user, text):
             leaders, _ = self.vote_loop.leaders()
-            leader = leaders[0] if leaders else None
-            self.ui.update_votes(self.vote_loop.counts(), leader)
+            self.ui.update_votes(self.vote_loop.counts(), leaders)
 
     # --- per-frame ---------------------------------------------------------
 
@@ -374,7 +409,14 @@ class Game:
         self.ui.update_timer()
         if self.time_left > 0:
             return
-        if self.vote_loop is not None:
+        if self._pending_end is not None:
+            # рулетка при ничьей отыграла — применяем отложенный исход;
+            # в UI из подсвеченных лидеров остаётся один победитель
+            on_end, winner, counts, n_voters = self._pending_end
+            self._pending_end = None
+            self.ui.update_votes(counts, [winner])
+            on_end(winner, counts, n_voters)
+        elif self.vote_loop is not None:
             # коллбэк может сменить фазу и обнулить vote_loop — не трогаем
             # его после finish()
             self.vote_loop.finish()
@@ -392,5 +434,27 @@ class Game:
         lives in Game (time_left), the round is closed by an explicit
         finish() when it runs out."""
         self.time_left = duration
-        self.vote_loop = VoteLoop(duration, on_end, validate=validate,
-                                  rng=self.rng)
+        self.vote_loop = VoteLoop(
+            duration,
+            lambda w, c, n: self._resolve_end(on_end, w, c, n),
+            validate=validate, rng=self.rng)
+
+    def _resolve_end(self, on_end, winner: str | None,
+                     counts: dict[str, int], n_voters: int) -> None:
+        """Round-end wrapper: a single leader applies at once; a tie holds
+        the phase for tie_resolve_pause while the overlay runs the roulette
+        (show_tie_resolve), then update() applies the pending outcome."""
+        if winner is None:
+            on_end(winner, counts, n_voters)
+            return
+        top = max(counts.values())
+        leaders = sorted(k for k, v in counts.items() if v == top)
+        if len(leaders) < 2:
+            on_end(winner, counts, n_voters)
+            return
+        self.vote_loop = None
+        self.time_left = self.cfg.tie_resolve_pause
+        self._pending_end = (on_end, winner, counts, n_voters)
+        print(f"tie {leaders} -> {winner}, resolving ({n_voters} voters)",
+              flush=True)
+        self.ui.show_tie_resolve(leaders, winner)

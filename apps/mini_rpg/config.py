@@ -18,6 +18,7 @@ class Config:
     shop_duration: float = 25.0         # секунд на голосование в магазине
     combat_end_pause: float = 4.0       # пауза после боя до следующего события
     gameover_pause: float = 15.0        # экран итогов забега
+    tie_resolve_pause: float = 3.0      # рулетка при ничьей (моргание лидеров)
     base_hp: int = 20                   # базовое HP героя (плюс 5×ВЫН)
     seed: int | None = None             # seed для MockChat/тай-брейков (None = случайно)
     overlay_port: int = 8766            # порт веб-оверлея (OBS Browser Source)

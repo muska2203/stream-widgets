@@ -1,4 +1,5 @@
-"""CLI check of the content pools: py -m apps.mini_rpg.core [mobs_dir [items_dir]]"""
+"""CLI check of the content pools:
+py -m apps.mini_rpg.core [mobs_dir [items_dir [prefixes_path]]]"""
 
 from __future__ import annotations
 
@@ -6,9 +7,10 @@ import sys
 from pathlib import Path
 
 from apps.mini_rpg.core.content import (DEFAULT_ITEMS_DIR, DEFAULT_MOBS_DIR,
-                                        ContentError, Item, Mob,
-                                        discover_items, discover_mobs,
-                                        load_item, load_mob)
+                                        DEFAULT_PREFIXES_PATH, ContentError,
+                                        Item, Mob, discover_items,
+                                        discover_mobs, load_item, load_mob,
+                                        load_prefixes)
 
 
 def main() -> None:
@@ -16,9 +18,23 @@ def main() -> None:
     sys.stdout.reconfigure(errors="replace")
     mobs_dir = Path(sys.argv[1]) if len(sys.argv) > 1 else DEFAULT_MOBS_DIR
     items_dir = Path(sys.argv[2]) if len(sys.argv) > 2 else DEFAULT_ITEMS_DIR
+    prefixes_path = (Path(sys.argv[3]) if len(sys.argv) > 3
+                     else DEFAULT_PREFIXES_PATH)
     failed = _check_pool(mobs_dir, discover_mobs, load_mob, _format_mob)
     failed += _check_pool(items_dir, discover_items, load_item, _format_item)
+    failed += _check_prefixes(prefixes_path)
     sys.exit(1 if failed else 0)
+
+
+def _check_prefixes(path: Path) -> int:
+    print(f"[{path.name}]", flush=True)
+    try:
+        prefixes = load_prefixes(path)
+    except ContentError as e:
+        print(f"  FAIL {e}", flush=True)
+        return 1
+    print(f"  OK   {len(prefixes)} префиксов: {', '.join(prefixes)}", flush=True)
+    return 0
 
 
 def _check_pool(directory, discover, load, format_) -> int:

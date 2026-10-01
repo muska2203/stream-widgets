@@ -7,16 +7,23 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Rubik:wght@400;600;700;800;900&display=swap" rel="stylesheet">
 <style>
+  /* Палитра — дизайн «comic-v1» (apps/mini_rpg/designs/comic-v1.html):
+     приглушённая серо-бежево-пыльная база, ЕДИНСТВЕННЫЙ яркий акцент —
+     клавиши вариантов (.key) и лидер голосования. */
   :root {
-    --ink:      #141414;   /* жирная чёрная обводка / текст */
-    --paper:    #fffdf4;   /* «бумага» карточек */
-    --yellow:   #ffd23f;
-    --red:      #ff5d5d;
-    --blue:     #4d96ff;
-    --green:    #6bcb77;
-    --purple:   #9b5de5;
-    --orange:   #ff9f1c;
-    --bw: 3px;             /* толщина обводки */
+    --ink:         #1a1712;   /* жирная чёрная обводка / текст (тёплый чёрный) */
+    --paper:       #f1ebdd;   /* «бумага» карточек — спокойная, серовато-беж */
+    --paper-deep:  #e2dac6;   /* чуть более тёмная бумага для мелких подложек */
+    --dust-red:    #c0766a;   /* пыльная терракота — HP, моб, печать КРИТ */
+    --dust-red-d:  #a8625a;
+    --dust-blue:   #7e93a8;   /* пыльный серо-синий — мана, «кто бьёт» */
+    --dust-blue-d: #6d8196;
+    --dust-olive:  #a09c6e;   /* пыльная олива — опыт, печать БЛОК */
+    --dust-olive-d:#84825c;
+    --accent:      #ffb51e;   /* ЕДИНСТВЕННЫЙ яркий: клавиши вариантов + лидер */
+    --accent-deep: #b06f00;   /* тёмный низ «кнопки» (грань нажатия) */
+    --accent-halo: #ffda8a;   /* мягкое кольцо-подсветка лидера */
+    --bw: 3px;                /* толщина обводки */
   }
   * { box-sizing: border-box; margin: 0; padding: 0; }
   html, body { background: transparent; }           /* фон страницы прозрачный (OBS) */
@@ -80,27 +87,27 @@
     box-shadow: 6px 6px 0 rgba(20,20,20,.85);
     transform: rotate(-1.5deg);
   }
-  /* угловые «болты»-звёздочки рамки */
+  /* угловые «болты»-звёздочки рамки — нейтральные, без акцента */
   #avatar-frame .bolt {
     position: absolute;
     width: 26px; height: 26px;
-    background: var(--yellow);
+    background: var(--paper);
     border: 3px solid var(--ink);
     border-radius: 50%;
     display: flex; align-items: center; justify-content: center;
     font-size: 13px;
   }
   #avatar-frame .bolt.tl { top: -13px; left: -13px; }
-  #avatar-frame .bolt.br { bottom: -13px; right: -13px; background: var(--red); color: #fff; }
+  #avatar-frame .bolt.br { bottom: -13px; right: -13px; background: var(--paper-deep); }
 
-  /* звёздный значок уровня поверх угла рамки */
+  /* звёздный значок уровня поверх угла рамки — бумажный, спокойный */
   #level-burst {
     position: absolute;
     right: -30px; bottom: -18px;
     width: 86px; height: 86px;
     display: flex; flex-direction: column;
     align-items: center; justify-content: center;
-    background: var(--yellow);
+    background: var(--paper);
     clip-path: polygon(100% 50%, 86.7% 59.8%, 93.3% 75%, 76.9% 76.9%, 75% 93.3%,
       59.8% 86.7%, 50% 100%, 40.2% 86.7%, 25% 93.3%, 23.1% 76.9%, 6.7% 75%,
       13.3% 59.8%, 0% 50%, 13.3% 40.2%, 6.7% 25%, 23.1% 23.1%, 25% 6.7%,
@@ -136,10 +143,10 @@
     transition: width .25s ease;
   }
   .bar .fill.zero { border-right: none; }
-  #hp-bar   .fill { background: repeating-linear-gradient(-45deg, var(--red) 0 10px, #e04848 10px 20px); }
-  #mana-bar .fill { background: repeating-linear-gradient(-45deg, var(--blue) 0 10px, #3d83e8 10px 20px); }
-  #xp-bar   .fill { background: repeating-linear-gradient(-45deg, var(--purple) 0 10px, #8a4cd8 10px 20px); }
-  #mob-hp-bar .fill { background: repeating-linear-gradient(-45deg, var(--red) 0 10px, #e04848 10px 20px); }
+  #hp-bar   .fill { background: repeating-linear-gradient(-45deg, var(--dust-red) 0 10px, var(--dust-red-d) 10px 20px); }
+  #mana-bar .fill { background: repeating-linear-gradient(-45deg, var(--dust-blue) 0 10px, var(--dust-blue-d) 10px 20px); }
+  #xp-bar   .fill { background: repeating-linear-gradient(-45deg, var(--dust-olive) 0 10px, var(--dust-olive-d) 10px 20px); }
+  #mob-hp-bar .fill { background: repeating-linear-gradient(-45deg, var(--dust-red) 0 10px, var(--dust-red-d) 10px 20px); }
   #xp-bar { height: 22px; }
   .bar .num {
     position: absolute; inset: 0;
@@ -152,14 +159,14 @@
                  1px -1px 0 var(--ink), -1px 1px 0 var(--ink);
   }
   #xp-bar .num { font-size: 12.5px; }
-  /* золото — монетка-чип */
+  /* золото — монетка-чип, нейтральная бумага */
   #gold-chip {
     align-self: flex-start;
     display: inline-flex;
     align-items: center;
     gap: .4em;
     padding: 4px 14px 4px 8px;
-    background: var(--yellow);
+    background: var(--paper);
     border: var(--bw) solid var(--ink);
     border-radius: 999px;
     box-shadow: 4px 4px 0 var(--ink);
@@ -169,7 +176,7 @@
   }
   #gold-chip .coin {
     width: 26px; height: 26px;
-    background: #fff3b0;
+    background: var(--paper-deep);
     border: 2.5px solid var(--ink);
     border-radius: 50%;
     display: flex; align-items: center; justify-content: center;
@@ -194,12 +201,13 @@
   .stat-chip .ic { font-size: 21px; }
   .stat-chip .nm { font-size: 11px; font-weight: 800; text-transform: uppercase;
                    letter-spacing: .02em; }
+  /* значения статов — НЕ акцент: тихая бумажная подложка */
   .stat-chip .vl {
     display: inline-block;
     min-width: 26px;
     margin: 2px 0;
     font-size: 21px; font-weight: 900;
-    background: var(--yellow);
+    background: var(--paper-deep);
     border: 2.5px solid var(--ink);
     border-radius: 9px;
   }
@@ -222,19 +230,19 @@
     font-size: 24px;
     width: 38px; height: 38px;
     flex: none;
-    background: var(--blue);
+    background: var(--dust-blue);
     border: 2.5px solid var(--ink);
     border-radius: 11px;
     display: flex; align-items: center; justify-content: center;
   }
-  .slot:nth-child(2) .ic { background: var(--green); }
-  .slot:nth-child(3) .ic { background: var(--orange); }
+  .slot:nth-child(2) .ic { background: var(--dust-olive); }
+  .slot:nth-child(3) .ic { background: var(--dust-red); }
   .slot .slot-name { font-size: 9.5px; font-weight: 800; text-transform: uppercase;
                      color: #6a6a6a; letter-spacing: .03em; }
   .slot .item-name { font-size: 14px; font-weight: 800; }
   .slot.empty .item-name { color: #9a9a9a; font-weight: 600; }
   .slot .detail { margin-top: 5px; font-size: 12px; font-weight: 700; }
-  .slot .detail b { background: #ffe9a8; border-radius: 5px; padding: 0 4px;
+  .slot .detail b { background: var(--paper-deep); border-radius: 5px; padding: 0 4px;
                     border: 1.5px solid var(--ink); }
 
   /* ===================== ПЛАШКА «КАК ИГРАТЬ» ===================== */
@@ -243,7 +251,7 @@
     align-items: center;
     gap: 10px;
     padding: 8px 14px;
-    background: var(--yellow);
+    background: var(--paper);
     border: var(--bw) solid var(--ink);
     border-radius: 15px;
     box-shadow: 4px 4px 0 var(--ink);
@@ -253,8 +261,9 @@
     line-height: 1.3;
   }
   #help-plaque .ic { font-size: 24px; flex: none; }
+  /* «цифру» — акцент, как клавиши: это то, что надо вводить в чат */
   #help-plaque b {
-    background: var(--paper);
+    background: var(--accent);
     border: 2px solid var(--ink);
     border-radius: 7px;
     padding: 0 6px;
@@ -285,10 +294,11 @@
     border-bottom: var(--bw) solid var(--ink);
     transform: rotate(45deg);
   }
+  /* таймер — нейтральная бумага, цифра НЕ акцентного цвета */
   #timer-badge {
     margin-left: auto;
     display: flex; align-items: center; gap: 6px;
-    background: var(--yellow);
+    background: var(--paper);
     border: var(--bw) solid var(--ink);
     border-radius: 999px;
     box-shadow: 4px 4px 0 var(--ink);
@@ -309,45 +319,62 @@
     border-radius: 15px;
     box-shadow: 4px 4px 0 var(--ink);
   }
+  /* ГЛАВНЫЙ АКЦЕНТ: клавиша-кнопка аркадного автомата — то, что зритель
+     вводит в чат. Крупная, сочный жёлто-оранжевый, тёмная цифра, толстая
+     тёмная грань снизу («нажатие») + комикс-тень. */
   .opt .key {
     flex: none;
-    width: 34px; height: 34px;
-    background: var(--blue);
-    color: #fff;
+    width: 46px; height: 46px;
+    background: var(--accent);
+    color: var(--ink);
     border: var(--bw) solid var(--ink);
-    border-radius: 11px;
+    border-radius: 13px;
     display: flex; align-items: center; justify-content: center;
-    font-size: 19px; font-weight: 900;
-    box-shadow: 2.5px 2.5px 0 var(--ink);
+    font-size: 26px; font-weight: 900;
+    box-shadow: 3px 5px 0 var(--ink),
+                inset 0 -6px 0 var(--accent-deep),
+                inset 0 3px 0 rgba(255,255,255,.35);
   }
-  .opt.exit .key { background: #8a8a8a; }
+  /* клавиша «0 — выйти» из магазина — приглушённая, без акцента */
+  .opt.exit .key {
+    background: #8a8a8a;
+    color: #fff;
+    box-shadow: 3px 5px 0 var(--ink),
+                inset 0 -6px 0 #5e5e5e,
+                inset 0 3px 0 rgba(255,255,255,.25);
+  }
   .opt .body { flex: 1; min-width: 0; line-height: 1.2; }
   .opt .lbl { font-weight: 800; font-size: 16px; }
   .opt .sub { font-size: 12px; font-weight: 600; color: #4a4a4a; }
-  .opt .sub b { background: #ffe9a8; border-radius: 5px; padding: 0 4px;
+  .opt .sub b { background: var(--paper-deep); border-radius: 5px; padding: 0 4px;
                 border: 1.5px solid var(--ink); }
   .opt .votes {
     flex: none;
     display: flex; align-items: center; gap: 4px;
-    background: #eee9dc;
+    background: var(--paper-deep);
     border: 2.5px solid var(--ink);
     border-radius: 999px;
     padding: 2px 10px;
     font-weight: 900; font-size: 15px;
   }
-  /* лидер голосования — зелёный, приподнят, с лентой */
+  /* лидер голосования — второй (и последний) носитель акцента */
   .opt.leader, .door-card.leader {
-    background: var(--green);
-    box-shadow: 6px 6px 0 var(--ink), 0 0 0 4px #b9f0c0;
+    background: var(--accent);
+    box-shadow: 6px 6px 0 var(--ink), 0 0 0 4px var(--accent-halo);
     transform: rotate(-.6deg) scale(1.02);
   }
-  .opt.leader .sub { color: #173a1c; }
-  .opt.leader .votes { background: #fff; }
+  .opt.leader .sub { color: #5a3d00; }
+  .opt.leader .votes { background: var(--paper); }
+  /* чтобы клавиша лидера не сливалась с акцентным фоном, она инвертируется */
+  .opt.leader .key, .door-card.leader .key {
+    background: var(--paper);
+    color: var(--ink);
+  }
   .leader-tag {
     position: absolute;
     top: -13px; right: 12px;
     background: var(--ink);
-    color: var(--yellow);
+    color: var(--accent);
     font-size: 11px; font-weight: 900;
     letter-spacing: .06em;
     border-radius: 999px;
@@ -374,21 +401,24 @@
   .door-card:nth-child(1) { transform: rotate(-1deg); }
   .door-card:nth-child(3) { transform: rotate(1deg); }
   .door-card.leader { transform: rotate(0deg) scale(1.04); }
+  /* клавиша двери — та же аркадная кнопка, самая крупная цифра на экране */
   .door-card .key {
-    width: 32px; height: 32px;
-    background: var(--purple);
-    color: #fff;
+    width: 48px; height: 48px;
+    background: var(--accent);
+    color: var(--ink);
     border: var(--bw) solid var(--ink);
-    border-radius: 11px;
+    border-radius: 14px;
     display: flex; align-items: center; justify-content: center;
-    font-size: 18px; font-weight: 900;
-    box-shadow: 2.5px 2.5px 0 var(--ink);
+    font-size: 27px; font-weight: 900;
+    box-shadow: 3px 5px 0 var(--ink),
+                inset 0 -6px 0 var(--accent-deep),
+                inset 0 3px 0 rgba(255,255,255,.35);
   }
   .door-card .ic { font-size: 44px; line-height: 1.1; }
   .door-card .nm { font-weight: 900; font-size: 16px; }
   .door-card .threat {
     font-size: 11.5px; font-weight: 700;
-    background: #ffd7d7;
+    background: #e8cfc8;
     border: 2px solid var(--ink);
     border-radius: 8px;
     padding: 1px 7px;
@@ -401,7 +431,7 @@
     align-items: center;
     gap: 13px;
     padding: 11px 14px;
-    background: #ffe3e3;
+    background: #e9dfd2;
   }
   #mob-card .ic {
     font-size: 52px;
@@ -417,7 +447,7 @@
   #mob-card .info { flex: 1; min-width: 0; }
   #mob-card .nm { font-size: 21px; font-weight: 900; }
   #mob-card .dmg { font-size: 13px; font-weight: 800; margin: 2px 0 6px; }
-  #mob-card .dmg b { background: var(--red); color: #fff; border-radius: 6px;
+  #mob-card .dmg b { background: var(--dust-red); color: #fff; border-radius: 6px;
                      padding: 0 6px; border: 2px solid var(--ink); }
 
   /* ===================== ИТОГ ХОДА ===================== */
@@ -437,31 +467,31 @@
   .outcome-row .who {
     flex: none;
     font-weight: 900;
-    background: var(--blue); color: #fff;
+    background: var(--dust-blue); color: #fff;
     border: 2px solid var(--ink); border-radius: 7px;
     padding: 0 7px;
   }
-  .outcome-row.mob .who { background: var(--red); }
+  .outcome-row.mob .who { background: var(--dust-red); }
   .stamp {                         /* «печать» КРИТ / БЛОК */
     display: inline-block;
     font-weight: 900;
     color: #fff;
-    background: var(--red);
+    background: var(--dust-red);
     border: 2.5px solid var(--ink);
     border-radius: 8px;
     padding: 1px 8px;
     transform: rotate(-3deg);
     box-shadow: 2px 2px 0 var(--ink);
   }
-  .stamp.block { background: var(--green); }
-  .num-hl { background: #ffe9a8; border: 1.5px solid var(--ink);
+  .stamp.block { background: var(--dust-olive); }
+  .num-hl { background: var(--paper-deep); border: 1.5px solid var(--ink);
             border-radius: 5px; padding: 0 4px; font-weight: 900; }
 
   /* ===================== ПРОКАЧКА ===================== */
   .arrow-badge {
     flex: none;
     font-weight: 900; font-size: 16px;
-    background: var(--yellow);
+    background: var(--paper-deep);
     border: 2.5px solid var(--ink);
     border-radius: 9px;
     padding: 2px 8px;
@@ -471,7 +501,7 @@
   #shop-gold {
     align-self: center;
     display: flex; align-items: center; gap: 8px;
-    background: var(--yellow);
+    background: var(--paper);
     border: var(--bw) solid var(--ink);
     border-radius: 999px;
     box-shadow: 4px 4px 0 var(--ink);
@@ -483,7 +513,7 @@
   .price-tag {
     flex: none;
     font-weight: 900; font-size: 15px;
-    background: var(--yellow);
+    background: var(--paper-deep);
     border: 2.5px solid var(--ink);
     border-radius: 999px;
     padding: 2px 10px;
@@ -509,7 +539,18 @@
   }
   .result-chip .v { font-size: 26px; font-weight: 900; }
   .result-chip .c { font-size: 11px; font-weight: 800; text-transform: uppercase; }
-  #error-box { background: #ffe3e3; }
+  .defeated-box { margin-top: 12px; }
+  .defeated-box .cap { font-size: 12px; font-weight: 800; text-transform: uppercase; }
+  .defeated-list { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; margin-top: 6px; }
+  .defeated-chip {
+    background: var(--paper);
+    border: 2px solid var(--ink);
+    border-radius: 10px;
+    box-shadow: 2px 2px 0 var(--ink);
+    padding: 2px 8px;
+    font-size: 13px; font-weight: 700;
+  }
+  #error-box { background: #e8cfc8; }
 
   .hidden { display: none !important; }
 </style>
@@ -622,6 +663,10 @@
           <div class="result-chip"><div class="v" id="sum-gold">0</div>
             <div class="c">золота добыто</div></div>
         </div>
+        <div class="defeated-box hidden" id="sum-defeated-box">
+          <div class="cap">⚔️ Поверженные</div>
+          <div class="defeated-list" id="sum-defeated"></div>
+        </div>
         <div style="margin-top:12px; font-size:14px; font-weight:700">
           🔄 новый забег начнётся автоматически через
           <span class="num-hl" id="summary-timer"></span> с</div>
@@ -650,6 +695,11 @@ const sections = ["event", "combat", "shop", "rest", "levelup",
 let phase = "", statsBuilt = false, gearSig = null, doorsSig = null,
     mobSig = null, cmdsSig = null, turnSig = null, levelupSig = null,
     shopSig = null, summarySig = null, errorSig = null;
+// рулетка при ничьей: пока активна, классом .leader владеет анимация;
+// rouletteVotesSig — замороженные голоса/состояния на момент ничьей,
+// их смена в снапшоте = Python применил победителя → рулетка отпускает
+let rouletteActive = false, resolveSig = null, rouletteToken = 0,
+    rouletteVotesSig = null;
 
 const ACCUSATIVE = {"голова": "голову", "тело": "тело", "ноги": "ноги"};
 const STAT_META = {
@@ -770,17 +820,72 @@ function optionRow(o, extras) {
   return d;
 }
 
+function setLeader(row, on) {
+  row.classList.toggle("leader", on);
+  const tag = row.querySelector(".leader-tag");
+  if (tag) tag.classList.toggle("hidden", !on);
+}
+
 function updateRows(container, items, base) {
   const kids = container.children;
   for (let i = 0; i < items.length; i++) {
     const o = items[i], el = kids[i];
-    const leader = o.state === "leader";
-    el.className = base + (leader ? " leader" : "");
-    const tag = el.querySelector(".leader-tag");
-    if (tag) tag.classList.toggle("hidden", !leader);
+    if (!rouletteActive) {
+      el.className = base;
+      setLeader(el, o.state === "leader");
+    }
     const votes = el.querySelector(".votes");
     votes.textContent = "🗳 " + o.votes;
     votes.classList.toggle("hidden", !(o.votes > 0));
+  }
+}
+
+/* Рулетка при ничьей: строки-лидеры по очереди моргают — сначала быстро,
+   паузы между вспышками растут, остановка — на выпавшем победителе. */
+function phaseRows() {
+  if (phase === "event") return [...$("doors-row").children];
+  if (phase === "combat") return [...$("commands").children];
+  if (phase === "shop") return [...$("shop-items").children,
+                                ...$("shop-exit").children];
+  if (phase === "levelup") return [...$("levelup-options").children];
+  return [];
+}
+
+/* Голосуемые варианты текущей фазы из снапшота — для подписи рулетки. */
+function voteItems(s) {
+  if (phase === "event") return s.event.doors;
+  if (phase === "combat") return s.combat.commands;
+  if (phase === "shop") return [...s.shop.items, s.shop.exit];
+  if (phase === "levelup") return s.levelup.options;
+  return [];
+}
+
+function startRoulette(resolve) {
+  const keyOf = row => row.querySelector(".key").textContent;
+  const rows = phaseRows();
+  const leaders = rows.filter(r => resolve.leaders.includes(keyOf(r)));
+  const winIdx = leaders.findIndex(r => keyOf(r) === String(resolve.winner));
+  if (leaders.length < 2 || winIdx < 0) return;
+  const token = ++rouletteToken;
+  for (const r of rows) setLeader(r, false);
+  rouletteActive = true;
+  const L = leaders.length;
+  // последний шаг (N-1) % L == winIdx → остановка ровно на победителе
+  let N = 10;
+  while ((N - 1) % L !== winIdx) N++;
+  // Python применит исход ровно через duration — запас 400 мс на поллинг
+  const T = Math.max(800, resolve.duration * 1000 - 400);
+  for (let k = 0; k < N; k++) {
+    // t ~ (k/N)²: паузы между вспышками растут — старт быстрый, торможение
+    const t = T * Math.pow((k + 1) / N, 2);
+    const row = leaders[k % L];
+    setTimeout(() => {
+      if (token !== rouletteToken) return;  // фаза уже сменилась
+      for (const r of leaders) setLeader(r, r === row);
+      // rouletteActive НЕ снимаем: до применения исхода Python'ом
+      // updateRows не должен вернуть .leader всем лидерам — отпускает
+      // apply(), когда в снапшоте сменятся голоса/состояния
+    }, t);
   }
 }
 
@@ -917,6 +1022,16 @@ function applyGameOver(g) {
     $("sum-level").textContent = g.level;
     $("sum-kills").textContent = g.kills;
     $("sum-gold").textContent = g.gold_earned;
+    const box = $("sum-defeated-box"), list = $("sum-defeated");
+    const defeated = g.defeated || [];
+    box.classList.toggle("hidden", defeated.length === 0);
+    list.textContent = "";
+    for (const name of defeated) {
+      const chip = document.createElement("div");
+      chip.className = "defeated-chip";
+      chip.textContent = name;
+      list.appendChild(chip);
+    }
   }
 }
 
@@ -928,6 +1043,8 @@ function apply(s) {
       $(name).classList.toggle("hidden", name !== phase);
     doorsSig = mobSig = cmdsSig = turnSig = levelupSig = shopSig =
         summarySig = errorSig = null;
+    rouletteActive = false; resolveSig = null; rouletteToken++;
+    rouletteVotesSig = null;
   }
   const title = phase === "combat"
       ? (COMBAT_TITLES[s.combat.subphase] || "⚔️ Бой")
@@ -935,7 +1052,25 @@ function apply(s) {
   $("phase-title").textContent = title;
   const timer = $("timer-badge");
   timer.textContent = "⏱ " + s.time_left + " с";
-  timer.classList.toggle("hidden", !(s.time_left > 0));
+  timer.classList.toggle("hidden", !(s.time_left > 0) || rouletteActive);
+  // ничья: блок resolve живёт один снапшот — запускаем рулетку на каждый
+  const rSig = s.resolve ? JSON.stringify(s.resolve) : null;
+  if (rSig !== resolveSig) {
+    resolveSig = rSig;
+    if (s.resolve) {
+      rouletteVotesSig = voteItems(s).map(o => "" + o.votes + o.state)
+          .join("");
+      startRoulette(s.resolve);
+    }
+  }
+  // Python применил исход ничьи: голоса/состояния сменились (лидер теперь
+  // один) — рулетка отпускает класс .leader, updateRows рисует победителя
+  if (rouletteActive && rouletteVotesSig !== null) {
+    const sig = voteItems(s).map(o => "" + o.votes + o.state).join("");
+    if (sig !== rouletteVotesSig) {
+      rouletteActive = false; rouletteToken++; rouletteVotesSig = null;
+    }
+  }
   if (phase === "event") applyEvent(s.event);
   else if (phase === "combat") applyCombat(s.combat);
   else if (phase === "shop") applyShop(s.shop);

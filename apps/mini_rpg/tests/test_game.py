@@ -51,6 +51,11 @@ class GameTests(unittest.TestCase):
         self.addCleanup(self._tmp.cleanup)
         self.mobs_dir = Path(self._tmp.name)
         self.items_dir = self.mobs_dir / "items"  # нет каталога — пустой пул
+        # один префикс — детерминированные боевые клички в тестах
+        self.prefixes_path = self.mobs_dir / "cfg" / "prefixes.toml"
+        self.prefixes_path.parent.mkdir()
+        self.prefixes_path.write_text('prefixes = ["Тестовый"]\n',
+                                      encoding="utf-8")
 
     def make_game(self, **cfg_over) -> Game:
         fields = dict(seed=SEED, event_duration=5.0, combat_duration=5.0,
@@ -58,7 +63,8 @@ class GameTests(unittest.TestCase):
                       combat_end_pause=1.0, gameover_pause=1.0)
         fields.update(cfg_over)
         return Game(Config(**fields), mobs_dir=self.mobs_dir,
-                    items_dir=self.items_dir)
+                    items_dir=self.items_dir,
+                    prefixes_path=self.prefixes_path)
 
     def drive(self, game: Game, cond, vote: str | None = None,
               max_ticks: int = 500) -> None:
@@ -88,7 +94,8 @@ class GameTests(unittest.TestCase):
         game.handle_chat_message("viewer", mob_door_digit(game))
         self.drive(game, lambda: game.state == COMBAT)
         self.assertEqual(game.combat_phase, ATTACK)
-        self.assertEqual(game.combat.mob.name, "Тестовый моб")
+        # боевая кличка: префикс + ник проголосовавшего (базовое имя — на двери)
+        self.assertEqual(game.combat.mob.name, "Тестовый viewer")
 
         # бой до победы: «1» — ближнее в голову / блок головы
         self.drive(game, lambda: game.state == LEVELUP, vote="1")
@@ -137,7 +144,8 @@ class GameTests(unittest.TestCase):
         self.drive(game, lambda: game.state == GAME_OVER)
         self.assertFalse(game.hero.alive)
         self.assertEqual(game.run_summary,
-                         {"level": 1, "kills": 0, "gold_earned": 0})
+                         {"level": 1, "kills": 0, "gold_earned": 0,
+                          "defeated": []})
 
         # gameover_pause → автоматический новый забег
         self.drive(game, lambda: game.state == EVENT)
@@ -237,6 +245,33 @@ class GameTests(unittest.TestCase):
         self.drive(game, lambda: game.combat_phase == OUTCOME)
         self.assertIsNone(game.hero.ranged)  # последний выстрел — сломался
 
+    # --- боевые клички и база чаттеров ---------------------------------------
+
+    def test_battle_name_fallback_without_chatters(self):
+        write_mob(self.mobs_dir)
+        game = self.make_game()
+        door = game.doors[int(mob_door_digit(game)) - 1]
+        game.enter_combat(door.mob)  # без чата реестр пуст — кличка без ника
+        self.assertEqual(game.combat.mob.name, "Тестовый Тестовый моб")
+
+    def test_defeated_listed_in_run_summary(self):
+        write_mob(self.mobs_dir, hp=3, xp=0, gold=0)
+        game = self.make_game()
+        self.drive(game, lambda: game.state == COMBAT,
+                   vote=mob_door_digit(game))
+        self.drive(game, lambda: game.state == COMBAT
+                   and game.combat_phase == COMBAT_END, vote="1")
+        self.assertEqual(game.defeated, ["Тестовый viewer"])
+        game.enter_game_over()
+        self.assertEqual(game.run_summary["defeated"],
+                         ["Тестовый viewer"])
+
+    def test_chat_message_registers_chatter_without_vote(self):
+        game = self.make_game()  # пустой пул мобов → ERROR, голосования нет
+        self.assertEqual(game.state, ERROR)
+        game.handle_chat_message("someone", "привет")
+        self.assertIn("someone", game.chatters.all)
+
     # --- шов оверлея ---------------------------------------------------------
 
     def test_ui_listener_receives_phase_calls(self):
@@ -254,6 +289,40 @@ class GameTests(unittest.TestCase):
         self.assertIn("update_votes", calls)
         self.drive(game, lambda: game.state == COMBAT)
         self.assertIn("show_combat", calls)
+
+    def test_tie_holds_phase_then_applies_winner(self):
+        calls = []
+
+        class Recorder:
+            def __getattr__(self, name):
+                return lambda *args: calls.append((name, args))
+
+        write_mob(self.mobs_dir, hp=3)
+        game = Game(Config(seed=SEED, event_duration=5.0,
+                           tie_resolve_pause=2.0),
+                    ui=Recorder(), mobs_dir=self.mobs_dir,
+                    items_dir=self.items_dir,
+                    prefixes_path=self.prefixes_path)
+        game.handle_chat_message("alice", "1")
+        game.handle_chat_message("bob", "2")
+        game.update(game.cfg.event_duration + DT)  # конец раунда — ничья 1:1
+
+        # фаза держится на время рулетки, исход отложен
+        self.assertEqual(game.state, EVENT)
+        self.assertIsNone(game.vote_loop)
+        self.assertEqual(game.time_left, game.cfg.tie_resolve_pause)
+        resolves = [args for name, args in calls
+                    if name == "show_tie_resolve"]
+        self.assertEqual(len(resolves), 1)
+        leaders, winner = resolves[0]
+        self.assertEqual(leaders, ["1", "2"])
+        self.assertIn(winner, leaders)
+        game.handle_chat_message("carol", "3")  # во время рулетки не считается
+
+        self.drive(game, lambda: game.state != EVENT)
+        self.assertIsNone(game._pending_end)
+        # перед применением в UI из лидеров остаётся один победитель
+        self.assertIn(("update_votes", ({"1": 1, "2": 1}, [winner])), calls)
 
 
 if __name__ == "__main__":

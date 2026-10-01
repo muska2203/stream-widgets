@@ -7,8 +7,9 @@ import unittest
 from pathlib import Path
 
 from apps.mini_rpg.core import (DEFAULT_ITEMS_DIR, DEFAULT_MOBS_DIR,
-                                ContentError, discover_items, discover_mobs,
-                                load_item, load_items, load_mob, load_mobs)
+                                DEFAULT_PREFIXES, ContentError, discover_items,
+                                discover_mobs, load_item, load_items, load_mob,
+                                load_mobs, load_prefixes)
 
 MOB = """
 name = "Гоблин"
@@ -180,6 +181,36 @@ class DiscoveryTests(PoolTestCase):
     def test_default_dirs_discoverable(self):
         self.assertTrue(discover_mobs(DEFAULT_MOBS_DIR))
         self.assertTrue(discover_items(DEFAULT_ITEMS_DIR))
+
+
+class LoadPrefixesTests(PoolTestCase):
+    def test_loads_list(self):
+        path = write(self.tmp, "prefixes.toml",
+                     'prefixes = ["Гнусный", "Смешной"]\n')
+        self.assertEqual(load_prefixes(path), ["Гнусный", "Смешной"])
+
+    def test_missing_file_falls_back_to_defaults(self):
+        self.assertEqual(load_prefixes(self.tmp / "nope.toml"),
+                         list(DEFAULT_PREFIXES))
+
+    def test_empty_list_falls_back_to_defaults(self):
+        path = write(self.tmp, "prefixes.toml", "prefixes = []\n")
+        self.assertEqual(load_prefixes(path), list(DEFAULT_PREFIXES))
+
+    def test_broken_toml_raises(self):
+        path = write(self.tmp, "prefixes.toml", 'prefixes = ["а",\n')
+        with self.assertRaises(ContentError):
+            load_prefixes(path)
+
+    def test_missing_key_raises(self):
+        path = write(self.tmp, "prefixes.toml", 'other = ["а"]\n')
+        with self.assertRaises(ContentError):
+            load_prefixes(path)
+
+    def test_non_string_entries_raise(self):
+        path = write(self.tmp, "prefixes.toml", 'prefixes = ["а", 5]\n')
+        with self.assertRaises(ContentError):
+            load_prefixes(path)
 
 
 if __name__ == "__main__":

@@ -134,8 +134,11 @@ class WebUI:
             "shop": {"items": [], "exit": _option(0, "Выйти")},
             "rest": {},
             "levelup": {"options": []},
-            "game_over": {"level": 0, "kills": 0, "gold_earned": 0},
+            "game_over": {"level": 0, "kills": 0, "gold_earned": 0,
+                          "defeated": []},
             "error": {"message": ""},
+            # ничья: рулетка среди лидеров (None вне тай-брейка)
+            "resolve": None,
         }
         self._combat = None  # последний показанный Combat (сброс turn на новом)
         self._published_seconds: int | None = None
@@ -272,7 +275,7 @@ class WebUI:
 
     # --- per-frame updates ---------------------------------------------------
 
-    def update_votes(self, counts: dict[str, int], leader: str | None) -> None:
+    def update_votes(self, counts: dict[str, int], leaders: list[str]) -> None:
         phase = self._state["phase"]
         if phase == PHASE_EVENT:
             items = self._state["event"]["doors"]
@@ -285,7 +288,17 @@ class WebUI:
             items = self._state["levelup"]["options"]
         else:
             return
-        self._apply_votes(items, counts, leader)
+        self._apply_votes(items, counts, leaders)
+
+    def show_tie_resolve(self, leaders: list[str], winner: str) -> None:
+        """Ничья: один снапшот с блоком resolve — оверлей запускает рулетку
+        (Game держит фазу на tie_resolve_pause и применяет winner после).
+        Блок живёт ровно одну публикацию: повторная ничья с тем же составом
+        должна перезапускать анимацию."""
+        self._state["resolve"] = {"leaders": leaders, "winner": winner,
+                                  "duration": self.game.time_left}
+        self._publish()
+        self._state["resolve"] = None
 
     def update_timer(self) -> None:
         """Called by Game.update() every frame; republishes only when the
@@ -332,12 +345,12 @@ class WebUI:
         }
 
     def _apply_votes(self, items: list[dict[str, Any]],
-                     counts: dict[str, int], leader: str | None) -> None:
+                     counts: dict[str, int], leaders: list[str]) -> None:
         changed = False
         for opt in items:
             digit = str(opt["n"])
             votes = counts.get(digit, 0)
-            state = (OPT_LEADER if digit == leader and leader is not None
+            state = (OPT_LEADER if digit in leaders
                      else OPT_ACTIVE if votes
                      else OPT_IDLE)
             if opt["votes"] != votes or opt["state"] != state:

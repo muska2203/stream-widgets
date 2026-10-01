@@ -13,6 +13,10 @@ from pathlib import Path
 
 DEFAULT_MOBS_DIR = Path(__file__).resolve().parent.parent / "mobs"
 DEFAULT_ITEMS_DIR = Path(__file__).resolve().parent.parent / "items"
+DEFAULT_PREFIXES_PATH = Path(__file__).resolve().parent.parent / "prefixes.toml"
+
+# фолбэк, если prefixes.toml отсутствует или список в нём пуст
+DEFAULT_PREFIXES = ("Гнусный", "Смешной", "Горючий", "Хилый", "Жирный")
 
 SLOTS = ("melee", "ranged", "armor")
 
@@ -96,6 +100,25 @@ def load_mobs(directory: str | Path = DEFAULT_MOBS_DIR) -> list[Mob]:
 def load_items(directory: str | Path = DEFAULT_ITEMS_DIR) -> list[Item]:
     """Load the whole pool; ContentError names the broken file."""
     return [load_item(p) for p in discover_items(directory)]
+
+
+def load_prefixes(path: str | Path = DEFAULT_PREFIXES_PATH) -> list[str]:
+    """Battle-name prefixes from one TOML file (`prefixes = [...]`).
+
+    Missing file or empty list → DEFAULT_PREFIXES fallback; broken TOML or
+    non-string entries → ContentError (error screen, like mobs/items).
+    """
+    path = Path(path)
+    if not path.is_file():
+        return list(DEFAULT_PREFIXES)
+    data, name = _read_toml(path)
+    prefixes = data.get("prefixes")
+    if not isinstance(prefixes, list):
+        raise ContentError(f"{name}: prefixes обязателен, список строк")
+    if not all(isinstance(p, str) for p in prefixes):
+        raise ContentError(f"{name}: prefixes — только строки")
+    cleaned = [p.strip() for p in prefixes if p.strip()]
+    return cleaned or list(DEFAULT_PREFIXES)
 
 
 def _read_toml(path: str | Path) -> tuple[dict, str]:

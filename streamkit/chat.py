@@ -63,9 +63,16 @@ class TwitchChat:
                       f"channel #{self._channel}", flush=True)
 
             async def event_message(self, message):
-                if message.echo or message.author is None:
+                if message.author is None:
                     return
-                self._out.put((message.author.name, message.content))
+                # echo (сообщения аккаунта токена) НЕ отсекаем: приложения
+                # сами в чат не пишут, а стримеру собственные сообщения
+                # нужны для сольного теста и участия в голосовании
+                # name — логин (всегда lowercase), display_name — ник с
+                # регистром, как его видят зрители; в голосованиях и базе
+                # чаттеров используем именно его
+                user = message.author.display_name or message.author.name
+                self._out.put((user, message.content))
 
         try:
             _ChatClient(self._token, self._channel, self.incoming).run()

@@ -3,7 +3,8 @@
 Монорепо интерактивных стрим-приложений:
 
 - **`streamkit/`** — переиспользуемая библиотека (pip-пакет, `pyproject.toml`):
-  чат Twitch и мок-чат, голосование с таймером раундов, окно-оверлей для OBS
+  чат Twitch и мок-чат, голосование с таймером раундов, база чаттеров
+  (ники пишущих, для кличек мобов и т.п.), окно-оверлей для OBS
   (хромакей, borderless), загрузка конфига и `.env`.
 - **`apps/<name>/`** — отдельные приложения на этой библиотеке. Сейчас:
   - **`apps/rubiks_cube/`** — чат коллективно собирает кубик Рубика, голосуя
@@ -13,9 +14,10 @@
     TOML-файлы в `stories/`, между ходами игра «засыпает» и прячет UI.
   - **`apps/mini_rpg/`** — чат ведёт героя через бесконечный забег:
     выбирает двери-события (мобы, магазин, зона отдыха), дерётся с мобами
-    (блоки по направлениям), качает статы и покупает снаряжение. Оверлей —
-    веб-страница для OBS Browser Source с прозрачной рамкой аватарки под
-    камеру стримера.
+    (блоки по направлениям), качает статы и покупает снаряжение. Мобы в бою
+    получают боевые клички «префикс + ник чаттера» из базы пишущих в чат.
+    Оверлей — веб-страница для OBS Browser Source с прозрачной рамкой
+    аватарки под камеру стримера.
 
 Стек: Python 3.11+ · TwitchIO (чат) · Ursina (окно кубика) ·
 OBS Browser Source (веб-оверлей истории и мини-RPG, без хромакея).
@@ -60,7 +62,7 @@ py -m apps.mini_rpg
 py -m apps.mini_rpg --mock
 py -m apps.mini_rpg --smoke
 
-# проверка пулов мобов и предметов (mobs/*.toml, items/*.toml)
+# проверка пулов мобов, предметов и префиксов (mobs/, items/, prefixes.toml)
 py -m apps.mini_rpg.core
 
 # offscreen-проверка рендера: скриншоты в apps/rubiks_cube/tools/shots/
@@ -104,7 +106,8 @@ from streamkit.overlay import WindowManipulator, create_overlay
 
 ## Структура
 
-- `streamkit/` — библиотека: `chat.py`, `voting.py`, `config.py`, `paths.py`
+- `streamkit/` — библиотека: `chat.py`, `chatters.py` (база ников чаттеров,
+  JSON-файл между запусками), `voting.py`, `config.py`, `paths.py`
   (frozen/dev-пути), `overlay/`, тесты в `streamkit/tests/`
 - `apps/rubiks_cube/` — игра: `main.py`, `game.py` (автомат состояний),
   `cube_view.py` (3D-куб), `ui.py` (таймер, таблица голосов, победа),
@@ -122,8 +125,9 @@ from streamkit.overlay import WindowManipulator, create_overlay
   SHOP/REST/LEVELUP/GAME_OVER), `webui.py` (модель состояния оверлея),
   `server.py` (HTTP для OBS Browser Source), `web/overlay.html` (страница
   оверлея), `core/` (пулы контента из TOML, модель героя, бой с блоками,
-  валидаторы команд), `mobs/` и `items/` (пулы контента), `tests/`,
-  `docs/`, `config.toml`
+  валидаторы команд), `mobs/` и `items/` (пулы контента), `prefixes.toml`
+  (префиксы боевых кличек), `chatters.json` (база ников, рантайм-файл,
+  gitignored), `tests/`, `docs/`, `config.toml`
 - `packaging/` — PyInstaller-сборка interactive_story в portable ZIP:
   `interactive_story.spec`, `build_zip.bat`, `defaults/` (дистрибутивный
   config.toml), `README_STREAMER.txt`
