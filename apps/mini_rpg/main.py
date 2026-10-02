@@ -25,16 +25,25 @@ SMOKE_SECONDS = 20.0
 # мок-чат не засоряет файл)
 CHATTERS_PATH = Path(__file__).resolve().parent / "chatters.json"
 
-# команды всех фаз (двери 1..3, атака 1..6, защита 1..3, прокачка 1..5)
-# плюс мусор для проверки фильтрации на стороне игры
-GARBAGE = ("hello", "gg", "a", "7")
-MOCK_MESSAGES = [str(i) for i in range(0, 7)] + list(GARBAGE)
+# чекпоинт прогресса забега между сессиями — тоже только в живом режиме
+SAVE_PATH = Path(__file__).resolve().parent / "savegame.json"
+
+# мусор для проверки фильтрации на стороне игры (цифры теперь тоже мусор —
+# голосуют словами текущего раунда)
+GARBAGE = ("hello", "gg", "a", "1", "7")
+
+
+def _mock_pool(game: Game):
+    """Пул сообщений мок-чата: преимущественно валидные слова активного
+    голосования (перечитываются каждый тик — слова меняются каждый раунд)
+    плюс немного мусора."""
+    return lambda: game.current_vote_words() * 3 + list(GARBAGE)
 
 
 def make_chat(cfg: Config, game: Game, force_mock: bool):
     from streamkit import MockChat
     if force_mock or cfg.mock_chat:
-        return MockChat(game.handle_chat_message, MOCK_MESSAGES,
+        return MockChat(game.handle_chat_message, _mock_pool(game),
                         rng=random.Random(cfg.seed))
     from streamkit import TwitchChat  # lazy: нужен twitchio и .env
     return TwitchChat(game.handle_chat_message, cfg.channel)
@@ -47,7 +56,8 @@ def main() -> None:
     from streamkit import ChatterRegistry
     # мок-режим — реестр в памяти: клички видны, но viewerN не пишутся в файл
     chatters = ChatterRegistry() if use_mock else ChatterRegistry(CHATTERS_PATH)
-    game = Game(cfg, chatters=chatters)
+    game = Game(cfg, chatters=chatters,
+                save_path=None if use_mock else SAVE_PATH)
     ui = WebUI(game)
     game.ui = ui
     chat = make_chat(cfg, game, force_mock=smoke or "--mock" in sys.argv)

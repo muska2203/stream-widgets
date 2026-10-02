@@ -52,6 +52,11 @@ def door_digit(game: Game, kind: str) -> str | None:
     return None
 
 
+def word(game: Game, key: str) -> str:
+    """Word alias of the canonical key in the currently open vote."""
+    return game.vote_key_words[key]
+
+
 class ShopRestTests(unittest.TestCase):
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()
@@ -64,7 +69,7 @@ class ShopRestTests(unittest.TestCase):
 
     def make_game(self, **cfg_over) -> Game:
         fields = dict(seed=SEED, event_duration=5.0, shop_duration=5.0,
-                      combat_end_pause=1.0)
+                      overtime_duration=2.0, combat_end_pause=1.0)
         fields.update(cfg_over)
         return Game(Config(**fields), mobs_dir=self.mobs_dir,
                     items_dir=self.items_dir)
@@ -106,7 +111,7 @@ class ShopRestTests(unittest.TestCase):
                    uses=3, price=5)
         game = self.make_game()
         self.open_shop(game, gold=10)
-        game.handle_chat_message("viewer", "1")
+        game.handle_chat_message("viewer", word(game, "1"))
         game.update(game.cfg.shop_duration + DT)
 
         bow = game.hero.ranged
@@ -129,40 +134,65 @@ class ShopRestTests(unittest.TestCase):
         game = self.make_game()
         old = game.hero.melee  # стартовые «Кулаки»
         self.open_shop(game, gold=10)
-        game.handle_chat_message("viewer", "1")
+        game.handle_chat_message("viewer", word(game, "1"))
         game.update(game.cfg.shop_duration + DT)
         self.assertEqual(game.hero.melee.name, "Меч")
         self.assertIsNot(game.hero.melee, old)  # старый потерян
+
+    def test_classic_mode_buy_by_digit_exit_by_command(self):
+        write_item(self.items_dir, "sword.toml", name="Меч", price=5)
+        game = self.make_game(vote_mode="classic")
+        self.open_shop(game, gold=10)
+        # товары — числовые команды, выход — «выход»
+        self.assertEqual(game.vote_key_words, {"0": "выход", "1": "1"})
+        game.handle_chat_message("viewer", "1")
+        game.update(game.cfg.shop_duration + DT)
+        self.assertEqual(game.hero.melee.name, "Меч")
+        self.assertEqual(game.hero.gold, 5)
+
+        self.open_shop(game, gold=10)
+        game.handle_chat_message("viewer", "выход")
+        game.update(game.cfg.shop_duration + DT)
+        self.assertEqual(game.hero.gold, 10)  # без покупки
+        game.update(game.cfg.combat_end_pause + DT)
+        self.assertEqual(game.state, EVENT)
 
     def test_exit_by_zero(self):
         write_item(self.items_dir, "sword.toml", name="Меч", price=5)
         game = self.make_game()
         self.open_shop(game, gold=10)
-        game.handle_chat_message("viewer", "0")
+        game.handle_chat_message("viewer", word(game, "0"))
         game.update(game.cfg.shop_duration + DT)
         self.assertEqual(game.hero.gold, 10)  # без покупки
         self.assertEqual(game.hero.melee.name, "Кулаки")
         game.update(game.cfg.combat_end_pause + DT)
         self.assertEqual(game.state, EVENT)
 
-    def test_exit_by_timeout_no_votes(self):
+    def test_no_votes_overtime_then_random_buy_or_exit(self):
         write_item(self.items_dir, "sword.toml", name="Меч", price=5)
         game = self.make_game()
         self.open_shop(game, gold=10)
-        game.update(game.cfg.shop_duration + DT)  # нет голосов — выход
-        self.assertEqual(game.hero.gold, 10)
-        self.assertEqual(game.hero.melee.name, "Кулаки")
-        game.update(game.cfg.combat_end_pause + DT)
-        self.assertEqual(game.state, EVENT)
+        game.update(game.cfg.shop_duration + DT)  # 0 голосов — овертайм
+        self.assertEqual(game.state, SHOP)
+        self.assertTrue(game.overtime)
+        game.update(game.cfg.overtime_duration + DT)  # рулетка среди всех
+        self.assertFalse(game.overtime)
+        # единое поведение: случайный выбор — покупка меча или выход
+        self.drive(game, lambda: game.state == EVENT)
+        if game.hero.melee.name == "Меч":
+            self.assertEqual(game.hero.gold, 5)
+        else:
+            self.assertEqual(game.hero.melee.name, "Кулаки")
+            self.assertEqual(game.hero.gold, 10)
 
     def test_all_unaffordable_only_exit_remains(self):
         write_item(self.items_dir, "pricey.toml", name="Дорогой", price=50)
         game = self.make_game()
         self.open_shop(game, gold=0)
         self.assertEqual(game.shop_items, [])
-        game.handle_chat_message("viewer", "1")  # нечего покупать
+        game.handle_chat_message("viewer", "1")  # нечего покупать (цифра — мусор)
         self.assertEqual(game.vote_loop.counts(), {})
-        game.handle_chat_message("viewer", "0")  # только выход
+        game.handle_chat_message("viewer", word(game, "0"))  # только выход
         self.assertEqual(game.vote_loop.counts(), {"0": 1})
         game.update(game.cfg.shop_duration + DT)
         game.update(game.cfg.combat_end_pause + DT)
@@ -197,7 +227,7 @@ class ShopRestTests(unittest.TestCase):
                     break
                 game.enter_event()  # переброс дверей
             self.assertIsNotNone(digit, f"{kind} не выпал за 50 перебросов")
-            game.handle_chat_message("viewer", digit)
+            game.handle_chat_message("viewer", word(game, digit))
             self.drive(game, lambda: game.state == state)
             self.drive(game, lambda: game.state == EVENT)  # фаза до конца
 

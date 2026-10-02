@@ -261,7 +261,7 @@
     line-height: 1.3;
   }
   #help-plaque .ic { font-size: 24px; flex: none; }
-  /* «цифру» — акцент, как клавиши: это то, что надо вводить в чат */
+  /* «слово» — акцент, как клавиши: это то, что надо вводить в чат */
   #help-plaque b {
     background: var(--accent);
     border: 2px solid var(--ink);
@@ -306,6 +306,21 @@
     font-size: 20px; font-weight: 900;
     transform: rotate(2deg);
   }
+  /* овертайм (раунд закончился без голосов): таймер мигает и подрагивает,
+     привлекая внимание к последним секундам */
+  #timer-badge.overtime {
+    animation: overtime-blink .5s steps(1, end) infinite,
+               overtime-shake .35s ease-in-out infinite;
+  }
+  @keyframes overtime-blink {
+    0%, 100% { background: var(--accent); color: var(--ink); }
+    50% { background: var(--ink); color: var(--accent); }
+  }
+  @keyframes overtime-shake {
+    0%, 100% { transform: rotate(2deg) translate(0, 0); }
+    25% { transform: rotate(2.8deg) translate(1.5px, -1px); }
+    75% { transform: rotate(1.2deg) translate(-1.5px, 1px); }
+  }
 
   /* ===================== варианты с голосами ===================== */
   .opt {
@@ -319,18 +334,20 @@
     border-radius: 15px;
     box-shadow: 4px 4px 0 var(--ink);
   }
-  /* ГЛАВНЫЙ АКЦЕНТ: клавиша-кнопка аркадного автомата — то, что зритель
-     вводит в чат. Крупная, сочный жёлто-оранжевый, тёмная цифра, толстая
+  /* ГЛАВНЫЙ АКЦЕНТ: клавиша-кнопка аркадного автомата — слово, которое
+     зритель вводит в чат. Сочный жёлто-оранжевый, тёмная надпись, толстая
      тёмная грань снизу («нажатие») + комикс-тень. */
   .opt .key {
     flex: none;
-    width: 46px; height: 46px;
+    min-width: 46px; height: 46px;
+    padding: 0 9px;
+    box-sizing: border-box;
     background: var(--accent);
     color: var(--ink);
     border: var(--bw) solid var(--ink);
     border-radius: 13px;
     display: flex; align-items: center; justify-content: center;
-    font-size: 26px; font-weight: 900;
+    font-size: 19px; font-weight: 900;
     box-shadow: 3px 5px 0 var(--ink),
                 inset 0 -6px 0 var(--accent-deep),
                 inset 0 3px 0 rgba(255,255,255,.35);
@@ -401,15 +418,17 @@
   .door-card:nth-child(1) { transform: rotate(-1deg); }
   .door-card:nth-child(3) { transform: rotate(1deg); }
   .door-card.leader { transform: rotate(0deg) scale(1.04); }
-  /* клавиша двери — та же аркадная кнопка, самая крупная цифра на экране */
+  /* клавиша двери — та же аркадная кнопка со словом голосования */
   .door-card .key {
-    width: 48px; height: 48px;
+    min-width: 48px; height: 48px;
+    padding: 0 10px;
+    box-sizing: border-box;
     background: var(--accent);
     color: var(--ink);
     border: var(--bw) solid var(--ink);
     border-radius: 14px;
     display: flex; align-items: center; justify-content: center;
-    font-size: 27px; font-weight: 900;
+    font-size: 20px; font-weight: 900;
     box-shadow: 3px 5px 0 var(--ink),
                 inset 0 -6px 0 var(--accent-deep),
                 inset 0 3px 0 rgba(255,255,255,.35);
@@ -590,7 +609,8 @@
     <!-- статичная плашка «как играть» для зрителей -->
     <div id="help-plaque">
       <span class="ic">💬</span>
-      <span>Играет чат! Пиши <b>цифру</b> варианта в чат —
+      <span>Игра идёт сама: если чат молчит, выбирается случайный вариант.
+            Пиши <b>слово</b> варианта в чат, чтобы влиять на выбор —
             побеждает вариант, набравший больше голосов.</span>
     </div>
   </div>
@@ -701,7 +721,7 @@ let phase = "", statsBuilt = false, gearSig = null, doorsSig = null,
 let rouletteActive = false, resolveSig = null, rouletteToken = 0,
     rouletteVotesSig = null;
 
-const ACCUSATIVE = {"голова": "голову", "тело": "тело", "ноги": "ноги"};
+const ACCUSATIVE = {"удар в голову": "голову", "тело": "тело", "удар в ноги": "удар в ноги"};
 const STAT_META = {
   "strength":  {ic: "💪", nm: "Сил", hint: "+урон ближним"},
   "agility":   {ic: "🤸", nm: "Лов", hint: "+урон дальним"},
@@ -796,12 +816,14 @@ function applyHero(h) {
   }
 }
 
-/* Строка голосуемого варианта: цифра-ключ, текст, бейджи, счётчик.
+/* Строка голосуемого варианта: слово-ключ (алиас раунда, его пишут в чат;
+   каноническая цифра — в data-n для рулетки), текст, бейджи, счётчик.
    extras — доп. элементы перед счётчиком (цена, стрелка прокачки). */
 function optionRow(o, extras) {
   const d = el("div", "opt");
+  d.dataset.n = o.n;
   d.append(el("span", "leader-tag hidden", "⭐ ЛИДЕР"),
-           el("span", "key", o.n));
+           el("span", "key", o.word != null ? o.word : o.n));
   const body = el("span", "body");
   const lbl = el("span", "lbl");
   lbl.textContent = (o.icon ? o.icon + " " : "") + o.label;
@@ -861,7 +883,8 @@ function voteItems(s) {
 }
 
 function startRoulette(resolve) {
-  const keyOf = row => row.querySelector(".key").textContent;
+  // канонический ключ строки — в data-n (в .key теперь слово-алиас)
+  const keyOf = row => row.dataset.n;
   const rows = phaseRows();
   const leaders = rows.filter(r => resolve.leaders.includes(keyOf(r)));
   const winIdx = leaders.findIndex(r => keyOf(r) === String(resolve.winner));
@@ -890,13 +913,14 @@ function startRoulette(resolve) {
 }
 
 function applyEvent(ev) {
-  const sig = ev.doors.map(d => d.n + d.icon + d.name + d.threat).join("");
+  const sig = ev.doors.map(d => d.n + d.word + d.icon + d.name + d.threat).join("");
   if (sig !== doorsSig) {
     doorsSig = sig;
     $("doors-row").replaceChildren(...ev.doors.map(d => {
       const card = el("div", "door-card");
+      card.dataset.n = d.n;
       card.append(el("span", "leader-tag hidden", "⭐ ЛИДЕР"),
-                  el("span", "key", d.n),
+                  el("span", "key", d.word != null ? d.word : d.n),
                   el("span", "ic", d.icon),
                   el("span", "nm", d.name));
       if (d.threat) card.append(el("span", "threat", d.threat));
@@ -964,7 +988,7 @@ function applyCombat(c) {
   $("combat-end").classList.toggle("hidden", sub !== "end");
   if (sub === "attack" || sub === "defense") {
     const sig = c.commands.map(
-        o => o.n + (o.icon || "") + o.label + (o.detail || "")).join("");
+        o => o.n + o.word + (o.icon || "") + o.label + (o.detail || "")).join("");
     if (sig !== cmdsSig) {
       cmdsSig = sig;
       $("commands").replaceChildren(...c.commands.map(o => {
@@ -984,13 +1008,13 @@ function applyCombat(c) {
 }
 
 function applyLevelup(l) {
-  const sig = l.options.map(o => o.n + o.name + o.value + o.hint).join("");
+  const sig = l.options.map(o => o.n + o.word + o.name + o.value + o.hint).join("");
   if (sig !== levelupSig) {
     levelupSig = sig;
     $("levelup-options").replaceChildren(...l.options.map(o => {
       const meta = STAT_META[o.key];
-      const row = optionRow({n: o.n, icon: meta.ic, label: o.name,
-                             hint: o.hint},
+      const row = optionRow({n: o.n, word: o.word, icon: meta.ic,
+                             label: o.name, hint: o.hint},
                             [el("span", "arrow-badge",
                                 o.value + " → " + (o.value + 1))]);
       return row;
@@ -1001,8 +1025,8 @@ function applyLevelup(l) {
 
 function applyShop(shop) {
   const sig = shop.items.map(
-      o => o.n + o.label + o.detail + o.current + o.price).join("")
-      + "|" + shop.exit.label;
+      o => o.n + o.word + o.label + o.detail + o.current + o.price).join("")
+      + "|" + shop.exit.label + shop.exit.word;
   if (sig !== shopSig) {
     shopSig = sig;
     $("shop-items").replaceChildren(...shop.items.map(o =>
@@ -1053,6 +1077,7 @@ function apply(s) {
   const timer = $("timer-badge");
   timer.textContent = "⏱ " + s.time_left + " с";
   timer.classList.toggle("hidden", !(s.time_left > 0) || rouletteActive);
+  timer.classList.toggle("overtime", !!s.overtime);
   // ничья: блок resolve живёт один снапшот — запускаем рулетку на каждый
   const rSig = s.resolve ? JSON.stringify(s.resolve) : null;
   if (rSig !== resolveSig) {

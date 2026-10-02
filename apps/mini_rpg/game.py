@@ -13,18 +13,19 @@ import random
 from dataclasses import dataclass, replace
 from pathlib import Path
 
-from streamkit import ChatterRegistry, VoteLoop
+from streamkit import ChatterRegistry, VoteLoop, VoteWords
 
 from apps.mini_rpg.config import Config
 from apps.mini_rpg.core import (DEFAULT_ITEMS_DIR, DEFAULT_MOBS_DIR,
                                 DEFAULT_PREFIXES, DEFAULT_PREFIXES_PATH,
                                 Combat, ContentError, Hero, Item, Mob,
-                                TurnResult, attack_choice, defense_choice,
-                                levelup_choice, load_items, load_mobs,
-                                load_prefixes, make_attack_validator,
-                                make_defense_validator, make_door_validator,
-                                make_levelup_validator, make_shop_validator,
-                                new_hero, scale_mob)
+                                TurnResult, attack_choice, attack_commands,
+                                defense_choice, defense_commands,
+                                door_commands, levelup_choice,
+                                levelup_commands, load_items, load_mobs,
+                                load_prefixes, new_hero, scale_mob,
+                                shop_commands)
+from apps.mini_rpg.persistence import load_checkpoint, save_checkpoint
 
 RUN_START, EVENT, COMBAT, SHOP, REST, LEVELUP, GAME_OVER, ERROR = (
     "run_start", "event", "combat", "shop", "rest", "levelup", "game_over",
@@ -103,7 +104,8 @@ class Game:
                  mobs_dir: str | Path = DEFAULT_MOBS_DIR,
                  items_dir: str | Path = DEFAULT_ITEMS_DIR,
                  prefixes_path: str | Path = DEFAULT_PREFIXES_PATH,
-                 chatters: ChatterRegistry | None = None):
+                 chatters: ChatterRegistry | None = None,
+                 save_path: str | Path | None = None):
         self.cfg = cfg
         self.rng = random.Random(cfg.seed)
         self.ui = ui or NullUI()
@@ -111,9 +113,19 @@ class Game:
         self.items_dir = items_dir
         self.prefixes_path = prefixes_path
         # None → реестр только в памяти (тесты); файл решает main.py
-        self.chatters = chatters or ChatterRegistry()
+        # (не `or`: у ChatterRegistry есть __len__, пустой реестр falsy)
+        self.chatters = chatters if chatters is not None else ChatterRegistry()
+        # None → без персиста прогресса (мок/smoke/тесты); файл решает main.py
+        self.save_path = Path(save_path) if save_path is not None else None
         self.state = ""
         self.vote_loop: VoteLoop | None = None
+        # зрители голосуют командами-алиасами канонических ключей (цифр):
+        # vote_mode "words" — случайное слово раунда из пула streamkit,
+        # "classic" — фиксированная команда из таблиц core.choices;
+        # UI показывает алиас (word), VoteLoop считает канонические ключи
+        self.vote_words = (VoteWords.from_file(rng=self.rng)
+                           if cfg.vote_mode == "words" else None)
+        self.vote_key_words: dict[str, str] = {}  # ключ -> алиас текущего раунда
         self.hero: Hero | None = None
         self.doors: list[Door] = []
         self.items_pool: list[Item] = []   # перечитывается на каждом EVENT
@@ -129,9 +141,22 @@ class Game:
         self.run_summary: dict | None = None
         self.error_message = ""
         self.time_left = 0.0           # единый countdown текущей фазы
+        self.overtime = False          # овертайм текущего голосования (0 голосов)
         # отложенный коллбэк конца раунда на время рулетки при ничьей
         self._pending_end = None
-        self.enter_run_start()
+        restored = (load_checkpoint(self.save_path)
+                    if self.save_path is not None else None)
+        if restored is not None:
+            self.hero = restored["hero"]
+            self.kills = restored["kills"]
+            self.gold_earned = restored["gold_earned"]
+            self.defeated = restored["defeated"]
+            self.pending_levelups = restored["pending_levelups"]
+            print(f"progress restored: level {self.hero.level}, "
+                  f"kills {self.kills}, gold {self.hero.gold}", flush=True)
+            self.enter_event()  # свежий бросок дверей, бой не восстанавливаем
+        else:
+            self.enter_run_start()
 
     # --- run / event -----------------------------------------------------
 
@@ -144,6 +169,7 @@ class Game:
         self.defeated = []
         self.pending_levelups = 0
         self.run_summary = None
+        self._save_checkpoint()  # смерть/новый забег стирает прошлый прогресс
         print("new run started", flush=True)
         self.enter_event()
 
@@ -172,7 +198,9 @@ class Game:
             return
         self.doors = self._roll_doors(mobs)
         self.state = EVENT
-        self.ui.show_event(self.doors)
+        # чекпоинт на границе фаз: всё, что меняло героя (бой/магазин/
+        # отдых/прокачка), к этому моменту уже отыграно
+        self._save_checkpoint()
         self._open_door_vote()
 
     def _roll_doors(self, mobs: list[Mob]) -> list[Door]:
@@ -194,16 +222,14 @@ class Game:
                 for kind in rolled]
 
     def _open_door_vote(self) -> None:
-        self._open_vote(self.cfg.event_duration, make_door_validator(),
-                        self.on_door_end)
+        validate = self._assign_words(door_commands())
+        self.ui.show_event(self.doors)
+        self._open_vote(self.cfg.event_duration, validate, self.on_door_end)
 
     def on_door_end(self, winner: str | None, counts: dict[str, int],
                     n_voters: int) -> None:
-        if winner is None:  # никто не голосовал — те же двери, новый раунд
-            print("no votes, restarting door vote", flush=True)
-            self._open_door_vote()
-            self.ui.update_votes({}, [])
-            return
+        # winner всегда есть: 0 голосов разруливает овертайм/рулетка в
+        # _resolve_end (единое поведение всех голосований)
         door = self.doors[int(winner) - 1]
         print(f"door {winner}: {door.name} ({n_voters} voters)", flush=True)
         if door.kind == MOB:
@@ -212,6 +238,12 @@ class Game:
             self.enter_shop()
         else:
             self.enter_rest()
+
+    def _save_checkpoint(self) -> None:
+        """Persist hero + run counters; no-op without a save_path (mock/
+        smoke/tests). Save errors only warn — the stream never crashes."""
+        if self.save_path is not None:
+            save_checkpoint(self.save_path, self)
 
     # --- combat ----------------------------------------------------------
 
@@ -236,31 +268,28 @@ class Game:
 
     def _open_attack_vote(self) -> None:
         self.combat_phase = ATTACK
+        validate = self._assign_words(
+            attack_commands(self.hero.ranged is not None))
         self.ui.show_combat(self.combat, ATTACK)
-        self._open_vote(self.cfg.combat_duration,
-                        make_attack_validator(self.hero.ranged is not None),
+        self._open_vote(self.cfg.combat_duration, validate,
                         self.on_attack_end)
 
     def on_attack_end(self, winner: str | None, counts: dict[str, int],
                       n_voters: int) -> None:
-        if winner is None:  # ход без голосов — герой не бьёт
-            self.last_turn = self.combat.hero_skip()
-        else:
-            weapon, direction = attack_choice(winner)
-            self.last_turn = self.combat.hero_turn(weapon, direction)
+        weapon, direction = attack_choice(winner)
+        self.last_turn = self.combat.hero_turn(weapon, direction)
         self._enter_outcome()
 
     def _open_defense_vote(self) -> None:
         self.combat_phase = DEFENSE
+        validate = self._assign_words(defense_commands())
         self.ui.show_combat(self.combat, DEFENSE)
-        self._open_vote(self.cfg.combat_duration, make_defense_validator(),
+        self._open_vote(self.cfg.combat_duration, validate,
                         self.on_defense_end)
 
     def on_defense_end(self, winner: str | None, counts: dict[str, int],
                        n_voters: int) -> None:
-        # ход без голосов — ничего не заблокировано
-        defense = defense_choice(winner) if winner is not None else None
-        self.last_turn = self.combat.mob_turn(defense)
+        self.last_turn = self.combat.mob_turn(defense_choice(winner))
         self._enter_outcome()
 
     def _enter_outcome(self) -> None:
@@ -311,14 +340,13 @@ class Game:
         self.shop_items = self.rng.sample(affordable,
                                           min(9, len(affordable)))
         self.state = SHOP
+        validate = self._assign_words(shop_commands(len(self.shop_items)))
         self.ui.show_shop(self.shop_items)
-        self._open_vote(self.cfg.shop_duration,
-                        make_shop_validator(len(self.shop_items)),
-                        self.on_shop_end)
+        self._open_vote(self.cfg.shop_duration, validate, self.on_shop_end)
 
     def on_shop_end(self, winner: str | None, counts: dict[str, int],
                     n_voters: int) -> None:
-        if winner is None or winner == "0":
+        if winner == "0":
             print("shop closed without purchase", flush=True)
         else:
             item = self.shop_items[int(winner) - 1]
@@ -345,20 +373,16 @@ class Game:
 
     def enter_levelup(self) -> None:
         self.state = LEVELUP
-        self.ui.show_levelup(self.hero)
         self._open_levelup_vote()
 
     def _open_levelup_vote(self) -> None:
-        self._open_vote(self.cfg.levelup_duration, make_levelup_validator(),
+        validate = self._assign_words(levelup_commands())
+        self.ui.show_levelup(self.hero)
+        self._open_vote(self.cfg.levelup_duration, validate,
                         self.on_levelup_end)
 
     def on_levelup_end(self, winner: str | None, counts: dict[str, int],
                        n_voters: int) -> None:
-        if winner is None:  # игра ждёт: окно перезапускается
-            print("no votes, restarting levelup vote", flush=True)
-            self._open_levelup_vote()
-            self.ui.update_votes({}, [])
-            return
         stat = levelup_choice(winner)
         self.hero.level_up(stat)
         self.pending_levelups -= 1
@@ -429,11 +453,32 @@ class Game:
         elif self.state == GAME_OVER:
             self.enter_run_start()
 
+    def _assign_words(self, classic: dict[str, str]):
+        """Build the round's alias table (key -> chat command) and return
+        the validator (command -> key). vote_mode "words": a random word
+        per key via VoteWords; "classic": the fixed commands from
+        core.choices (`classic` = {key: command}). Runs BEFORE the
+        ui.show_* call of the phase so the overlay gets the aliases in the
+        same snapshot."""
+        if self.vote_words is not None:
+            mapping = self.vote_words.assign(list(classic))
+            self.vote_key_words = {key: word for word, key in mapping.items()}
+        else:
+            self.vote_key_words = dict(classic)
+            mapping = {command: key for key, command in classic.items()}
+        return VoteWords.validator(mapping)
+
+    def current_vote_words(self) -> list[str]:
+        """Chat commands of the currently open vote (pool for the mock
+        chat; random words in "words" mode, classic commands otherwise)."""
+        return list(self.vote_key_words.values())
+
     def _open_vote(self, duration: float, validate, on_end) -> None:
         """Fresh VoteLoop per phase with its own validator; the phase timer
         lives in Game (time_left), the round is closed by an explicit
         finish() when it runs out."""
         self.time_left = duration
+        self.overtime = False
         self.vote_loop = VoteLoop(
             duration,
             lambda w, c, n: self._resolve_end(on_end, w, c, n),
@@ -441,20 +486,37 @@ class Game:
 
     def _resolve_end(self, on_end, winner: str | None,
                      counts: dict[str, int], n_voters: int) -> None:
-        """Round-end wrapper: a single leader applies at once; a tie holds
-        the phase for tie_resolve_pause while the overlay runs the roulette
-        (show_tie_resolve), then update() applies the pending outcome."""
-        if winner is None:
-            on_end(winner, counts, n_voters)
+        """Round-end wrapper, uniform for every vote (docs/DESIGN.md
+        «Овертайм»): 0 votes triggers a one-shot overtime — the same vote
+        (same words, same options) continues for overtime_duration. If
+        overtime also ends with 0 votes, a random winner among ALL options
+        is resolved by the same roulette as a tie; a single leader applies
+        at once; a tie holds the phase for tie_resolve_pause while the
+        overlay runs the roulette (show_tie_resolve), then update() applies
+        the pending outcome."""
+        if winner is None and not self.overtime:
+            self.overtime = True
+            self.time_left = self.cfg.overtime_duration
+            # свежий VotingRound с тем же валидатором: слова раунда и
+            # варианты сохраняются, голосов всё равно не было
+            self.vote_loop.start()
+            print("no votes, overtime", flush=True)
             return
-        top = max(counts.values())
-        leaders = sorted(k for k, v in counts.items() if v == top)
+        if winner is None:  # овертайм тоже без голосов
+            leaders = sorted(self.vote_key_words)
+            winner = self.rng.choice(leaders)
+            reason = f"no votes after overtime, random among {leaders}"
+        else:
+            top = max(counts.values())
+            leaders = sorted(k for k, v in counts.items() if v == top)
+            reason = f"tie {leaders}"
+        self.overtime = False
         if len(leaders) < 2:
             on_end(winner, counts, n_voters)
             return
         self.vote_loop = None
         self.time_left = self.cfg.tie_resolve_pause
         self._pending_end = (on_end, winner, counts, n_voters)
-        print(f"tie {leaders} -> {winner}, resolving ({n_voters} voters)",
+        print(f"{reason} -> {winner}, resolving ({n_voters} voters)",
               flush=True)
         self.ui.show_tie_resolve(leaders, winner)

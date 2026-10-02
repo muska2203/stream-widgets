@@ -92,14 +92,17 @@ class MockChat:
     """Fake viewers voting at random, for development without Twitch.
 
     `messages` is the pool of texts viewers may send (include garbage to
-    exercise filtering on the app side — MockChat does not filter).
+    exercise filtering on the app side — MockChat does not filter). It may
+    also be a zero-arg callable returning the pool — for apps whose valid
+    commands change every round (the callable is re-read at each tick).
     """
 
-    def __init__(self, on_message: MessageCallback, messages: Sequence[str],
+    def __init__(self, on_message: MessageCallback,
+                 messages: Sequence[str] | Callable[[], Sequence[str]],
                  users: Sequence[str] = MOCK_USERS, interval: float = 0.35,
                  rng: random.Random | None = None):
         self.on_message = on_message
-        self.messages = list(messages)
+        self.messages = messages
         self.users = list(users)
         self.interval = interval
         self.rng = rng or random.Random()
@@ -110,6 +113,9 @@ class MockChat:
         if self.timer > 0:
             return
         self.timer = self.interval
+        pool = self.messages() if callable(self.messages) else self.messages
+        if not pool:
+            return
         for _ in range(self.rng.randint(0, 3)):
             self.on_message(self.rng.choice(self.users),
-                            self.rng.choice(self.messages))
+                            self.rng.choice(pool))

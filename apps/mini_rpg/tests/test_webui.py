@@ -20,7 +20,7 @@ def make_game(**over) -> SimpleNamespace:
     fields = dict(state="event", hero=new_hero(BASE_HP), doors=[],
                   combat=None, combat_phase="", last_turn=None,
                   shop_items=[], time_left=0.0, run_summary=None,
-                  error_message="")
+                  error_message="", vote_key_words={}, overtime=False)
     fields.update(over)
     return SimpleNamespace(**fields)
 
@@ -75,11 +75,14 @@ class WebUITest(unittest.TestCase):
         doors = [Door("mob", make_mob(name="Гоблин")),
                  Door("mob", make_mob(name="Скелет", icon="💀")),
                  Door("shop"), ]
-        ui = WebUI(make_game(doors=doors))
+        words = {"1": "меч", "2": "волк", "3": "гора"}
+        ui = WebUI(make_game(doors=doors, vote_key_words=words))
         s = snapshot(ui)
         self.assertEqual(s["phase"], "event")
         shown = s["event"]["doors"]
         self.assertEqual([d["n"] for d in shown], [1, 2, 3])
+        # слово-алиас раунда (по нему голосуют в чате) рядом с ключом
+        self.assertEqual([d["word"] for d in shown], ["меч", "волк", "гора"])
         self.assertEqual([d["name"] for d in shown],
                          ["Гоблин", "Скелет", "Магазин"])
         self.assertEqual(shown[1]["icon"], "💀")
@@ -120,7 +123,9 @@ class WebUITest(unittest.TestCase):
         self.assertIsNone(snapshot(ui)["resolve"])
 
     def test_combat_attack_commands(self):
-        game = make_game(state="combat", combat_phase="attack")
+        words = {"1": "меч", "2": "волк", "3": "гора"}
+        game = make_game(state="combat", combat_phase="attack",
+                         vote_key_words=words)
         combat = Combat(game.hero, make_mob(), random.Random(1))
         game.combat = combat
         ui = WebUI(game)
@@ -132,6 +137,8 @@ class WebUITest(unittest.TestCase):
                           "max_hp": 20, "damage": "2–5"})
         commands = s["combat"]["commands"]
         self.assertEqual([c["n"] for c in commands], [1, 2, 3])
+        self.assertEqual([c["word"] for c in commands],
+                         ["меч", "волк", "гора"])
         self.assertEqual([c["label"] for c in commands],
                          ["Кулаки в голову", "Кулаки в тело",
                           "Кулаки в ноги"])
@@ -179,7 +186,7 @@ class WebUITest(unittest.TestCase):
         turn = block["turn"]
         self.assertEqual(turn["actor"], "hero")
         self.assertEqual(turn["weapon_label"], "Кулаки")
-        self.assertEqual(turn["direction_name"], "голова")
+        self.assertEqual(turn["direction_name"], "удар в голову")
         self.assertEqual(turn["target_hp"], combat.mob_hp)
         self.assertFalse(turn["crit"])
 
@@ -238,7 +245,7 @@ class WebUITest(unittest.TestCase):
         self.assertEqual(s["phase"], "levelup")
         options = s["levelup"]["options"]
         self.assertEqual(len(options), 5)
-        self.assertEqual(options[0], {"n": 1, "key": "strength",
+        self.assertEqual(options[0], {"n": 1, "word": None, "key": "strength",
                                       "name": "Сила", "value": 2,
                                       "hint": "+1 к урону ближним оружием",
                                       "votes": 0, "state": "idle"})
@@ -260,7 +267,7 @@ class WebUITest(unittest.TestCase):
         self.assertEqual(s["phase"], "shop")
         shown = s["shop"]["items"]
         self.assertEqual([o["n"] for o in shown], [1, 2])
-        self.assertEqual(shown[0], {"n": 1, "icon": "🏹",
+        self.assertEqual(shown[0], {"n": 1, "word": None, "icon": "🏹",
                                     "label": "Короткий лук",
                                     "slot_name": "дальнее",
                                     "detail": "урон 3–7, зарядов: 5",
@@ -271,7 +278,7 @@ class WebUITest(unittest.TestCase):
         self.assertEqual(shown[1]["slot_name"], "броня")
         self.assertEqual(shown[1]["detail"], "−2 урона")
         self.assertEqual(s["shop"]["exit"],
-                         {"n": 0, "label": "Выйти", "votes": 0,
+                         {"n": 0, "word": None, "label": "Выйти", "votes": 0,
                           "state": "idle"})
 
         ui.update_votes({"1": 2, "0": 1}, ["1"])
@@ -319,6 +326,23 @@ class WebUITest(unittest.TestCase):
         ui.update_timer()
         self.assertIsNot(ui.snapshot, snap)
         self.assertEqual(snapshot(ui)["time_left"], 9)
+
+    def test_overtime_flag_republishes_without_second_change(self):
+        game = make_game(time_left=10.0)
+        ui = WebUI(game)
+        self.assertFalse(snapshot(ui)["overtime"])
+
+        snap = ui.snapshot
+        game.overtime = True  # 0 голосов — овертайм, таймер на странице мигает
+        ui.update_timer()
+        self.assertIsNot(ui.snapshot, snap)  # републикация без смены секунды
+        self.assertTrue(snapshot(ui)["overtime"])
+
+        snap = ui.snapshot
+        game.overtime = False
+        ui.update_timer()
+        self.assertIsNot(ui.snapshot, snap)
+        self.assertFalse(snapshot(ui)["overtime"])
 
     def test_snapshot_is_atomic(self):
         game = make_game(doors=[Door("mob", make_mob())])

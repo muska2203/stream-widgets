@@ -16,3 +16,6 @@ all = ["twitchio>=2.10,<3", "ursina>=8.3.0"]
 
 [tool.setuptools]
 packages = ["streamkit", "streamkit.overlay"]
+
+[tool.setuptools.package-data]
+streamkit = ["*.toml"]

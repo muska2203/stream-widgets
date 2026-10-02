@@ -55,7 +55,8 @@ STAT_HINTS = {
     "luck": "+2% к шансу крита (крит ×2)",
 }
 STAT_GEN = {"strength": "силы", "agility": "ловк."}
-DIRECTION_NAMES = {"head": "голова", "body": "тело", "legs": "ноги"}
+DIRECTION_NAMES = {"head": "удар в голову", "body": "удар в тело",
+                   "legs": "удар в ноги"}
 DIRECTION_ACC = {"head": "голову", "body": "тело", "legs": "ноги"}
 WEAPON_NAMES = {"melee": "ближнее", "ranged": "дальнее"}
 SLOT_NAMES = {"melee": "Ближнее оружие", "ranged": "Дальнее оружие",
@@ -64,14 +65,16 @@ SHORT_SLOT_NAMES = {"melee": "ближнее", "ranged": "дальнее",
                     "armor": "броня"}
 
 
-def _option(n: int, label: str) -> dict[str, Any]:
-    return {"n": n, "label": label, "votes": 0, "state": OPT_IDLE}
+def _option(n: int, label: str, word: str | None = None) -> dict[str, Any]:
+    return {"n": n, "word": word, "label": label, "votes": 0,
+            "state": OPT_IDLE}
 
 
-def _attack_commands(hero) -> list[dict[str, Any]]:
+def _attack_commands(hero, words: dict[str, str]) -> list[dict[str, Any]]:
     """Команды 1–6: 1–3 ближнее, 4–6 дальнее (если есть) — нумерация
     совпадает с attack_choice из core.choices. У каждой готовые label
-    («Короткий лук в голову») и detail (урон + бонус статы, заряды)."""
+    («Короткий лук в голову»), detail (урон + бонус статы, заряды) и
+    слово-алиас раунда (по нему голосуют в чате)."""
     commands = []
     n = 0
     for slot in WEAPON_SLOTS:
@@ -85,7 +88,8 @@ def _attack_commands(hero) -> list[dict[str, Any]]:
                       f"+{stat} {STAT_GEN[DAMAGE_STAT[slot]]}")
             if slot == "ranged":
                 detail += f" · зарядов: {weapon.uses}"
-            commands.append({"n": n, "icon": weapon.icon,
+            commands.append({"n": n, "word": words.get(str(n)),
+                             "icon": weapon.icon,
                              "label": f"{weapon.name} "
                                       f"в {DIRECTION_ACC[direction]}",
                              "detail": detail, "votes": 0,
@@ -93,8 +97,9 @@ def _attack_commands(hero) -> list[dict[str, Any]]:
     return commands
 
 
-def _defense_commands() -> list[dict[str, Any]]:
-    return [_option(n, f"Защитить {DIRECTION_ACC[defense_choice(str(n))]}")
+def _defense_commands(words: dict[str, str]) -> list[dict[str, Any]]:
+    return [_option(n, f"Защитить {DIRECTION_ACC[defense_choice(str(n))]}",
+                    words.get(str(n)))
             for n in (1, 2, 3)]
 
 
@@ -142,8 +147,13 @@ class WebUI:
         }
         self._combat = None  # последний показанный Combat (сброс turn на новом)
         self._published_seconds: int | None = None
+        self._published_overtime: bool | None = None
         self._snapshot: dict[str, Any] = {}
         self.refresh()  # Game уже мог войти в первую фазу до подключения UI
+
+    def _words(self) -> dict[str, str]:
+        """Ключ -> слово-алиас текущего голосования (Game._assign_words)."""
+        return getattr(self.game, "vote_key_words", None) or {}
 
     @property
     def snapshot(self) -> dict[str, Any]:
@@ -175,9 +185,11 @@ class WebUI:
     # --- phase calls (NullUI interface) -----------------------------------
 
     def show_event(self, doors) -> None:
+        words = self._words()
         self._state["phase"] = PHASE_EVENT
         self._state["event"] = {"doors": [
-            {"n": i + 1, "icon": d.icon, "name": d.name,
+            {"n": i + 1, "word": words.get(str(i + 1)), "icon": d.icon,
+             "name": d.name,
              "threat": (f"HP {d.mob.hp} · урон "
                         f"{d.mob.damage_min}–{d.mob.damage_max}"
                         if d.mob is not None else None),
@@ -198,9 +210,10 @@ class WebUI:
                         "damage": f"{combat.mob.damage_min}–"
                                   f"{combat.mob.damage_max}"}
         if phase == ATTACK:
-            block["commands"] = _attack_commands(self.game.hero)
+            block["commands"] = _attack_commands(self.game.hero,
+                                                 self._words())
         elif phase == DEFENSE:
-            block["commands"] = _defense_commands()
+            block["commands"] = _defense_commands(self._words())
         else:
             block["commands"] = []
         self._publish()
@@ -231,22 +244,23 @@ class WebUI:
                 "target_hp": result.target_hp,
                 "armor": hero.armor_value if hero is not None else 0}
 
-    def _shop_item(self, item, n: int) -> dict[str, Any]:
+    def _shop_item(self, item, n: int, word: str | None) -> dict[str, Any]:
         hero = self.game.hero
         equipped = getattr(hero, item.slot, None) if hero else None
         current = (f"сейчас: {equipped.name} ({_item_detail(equipped)})"
                    if equipped is not None else "сейчас: пусто")
-        return {"n": n, "icon": item.icon, "label": item.name,
+        return {"n": n, "word": word, "icon": item.icon, "label": item.name,
                 "slot_name": SHORT_SLOT_NAMES[item.slot],
                 "detail": _item_detail(item), "current": current,
                 "price": item.price, "votes": 0, "state": OPT_IDLE}
 
     def show_shop(self, items) -> None:
+        words = self._words()
         self._state["phase"] = PHASE_SHOP
         self._state["shop"] = {
-            "items": [self._shop_item(item, i + 1)
+            "items": [self._shop_item(item, i + 1, words.get(str(i + 1)))
                       for i, item in enumerate(items)],
-            "exit": _option(0, "Выйти")}
+            "exit": _option(0, "Выйти", words.get("0"))}
         self._publish()
 
     def show_rest(self, hero) -> None:
@@ -255,9 +269,11 @@ class WebUI:
         self._publish()
 
     def show_levelup(self, hero) -> None:
+        words = self._words()
         self._state["phase"] = PHASE_LEVELUP
         self._state["levelup"] = {"options": [
-            {"n": i + 1, "key": stat, "name": STAT_NAMES[stat],
+            {"n": i + 1, "word": words.get(str(i + 1)), "key": stat,
+             "name": STAT_NAMES[stat],
              "value": getattr(hero, stat), "hint": STAT_HINTS[stat],
              "votes": 0, "state": OPT_IDLE}
             for i, stat in enumerate(STATS)]}
@@ -301,9 +317,10 @@ class WebUI:
         self._state["resolve"] = None
 
     def update_timer(self) -> None:
-        """Called by Game.update() every frame; republishes only when the
-        displayed second changes."""
-        if self._seconds() != self._published_seconds:
+        """Called by Game.update() every frame; republishes when the
+        displayed second or the overtime flag changes."""
+        if (self._seconds() != self._published_seconds
+                or self._overtime() != self._published_overtime):
             self._publish()
 
     # --- helpers -----------------------------------------------------------
@@ -312,6 +329,8 @@ class WebUI:
         snap = copy.deepcopy(self._state)
         snap["hero"] = self._hero_panel()
         snap["time_left"] = self._seconds()
+        # овертайм голосования (0 голосов): таймер на странице мигает
+        snap["overtime"] = self._overtime()
         if snap["phase"] == PHASE_COMBAT and self.game.combat is not None:
             block = snap["combat"]
             block["subphase"] = self.game.combat_phase
@@ -320,10 +339,14 @@ class WebUI:
             if block["subphase"] in (OUTCOME, COMBAT_END):
                 block["commands"] = []
         self._published_seconds = snap["time_left"]
+        self._published_overtime = snap["overtime"]
         self._snapshot = snap
 
     def _seconds(self) -> int:
         return max(0, int(self.game.time_left + 0.5))
+
+    def _overtime(self) -> bool:
+        return bool(getattr(self.game, "overtime", False))
 
     def _hero_panel(self) -> dict[str, Any] | None:
         hero = self.game.hero
