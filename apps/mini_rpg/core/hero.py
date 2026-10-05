@@ -1,15 +1,16 @@
-"""Hero model: stats, XP/level, gold, HP/mana, 3 equipment slots.
+"""Hero model: stats, XP/level, gold, HP/mana, 2 equipment slots.
 
 Pure Python, no IO; rng is injected into the rolling methods. All balance
-formulas (HP/mana/crit/damage) live here — one place to tune (DESIGN.md).
+formulas (HP/mana/crit/attack cooldown/damage) live here — one place to tune
+(DESIGN.md).
 """
 
 from __future__ import annotations
 
 import random
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
-from apps.mini_rpg.core.content import SLOTS, Item
+from apps.mini_rpg.core.content import SLOTS, DEFAULT_STARTER, Item
 
 STATS = ("strength", "agility", "intellect", "endurance", "luck")
 
@@ -18,9 +19,6 @@ MANA_PER_INTELLECT = 5
 CRIT_PER_LUCK = 0.02
 CRIT_MULTIPLIER = 2
 XP_PER_LEVEL = 10
-
-WEAPON_SLOTS = ("melee", "ranged")
-DAMAGE_STAT = {"melee": "strength", "ranged": "agility"}
 
 
 @dataclass
@@ -37,7 +35,6 @@ class Hero:
     hp: int | None = None      # текущее; None = полное при создании
     mana: int | None = None
     melee: Item | None = None
-    ranged: Item | None = None
     armor: Item | None = None
 
     def __post_init__(self):
@@ -60,6 +57,7 @@ class Hero:
 
     @property
     def armor_value(self) -> int:
+        """Flat damage absorbed from every mob hit; 0 without armor."""
         return self.armor.armor if self.armor is not None else 0
 
     @property
@@ -95,32 +93,35 @@ class Hero:
         if stat == "endurance":
             self.hp += HP_PER_ENDURANCE
 
-    def use_ranged(self) -> None:
-        """Spend one ranged use; at zero the weapon breaks (slot empties)."""
-        if self.ranged is None:
-            raise ValueError("нет дальнего оружия")
-        self.ranged.uses -= 1
-        if self.ranged.uses <= 0:
-            self.ranged = None
+    def damage_range(self) -> tuple[int, int]:
+        """Melee weapon damage range (lo, hi) = damage_min/max + strength."""
+        if self.melee is None:
+            raise ValueError("слот melee пуст")
+        return (self.melee.damage_min + self.strength,
+                self.melee.damage_max + self.strength)
 
-    def roll_damage(self, slot: str, rng: random.Random) -> tuple[int, bool]:
-        """Weapon roll N..M + stat, crit ×2 of the total; (damage, crit)."""
-        if slot not in WEAPON_SLOTS:
-            raise ValueError(f"не оружейный слот: {slot!r}")
-        weapon = getattr(self, slot)
-        if weapon is None:
-            raise ValueError(f"слот {slot} пуст")
-        damage = rng.randint(weapon.damage_min, weapon.damage_max)
-        damage += getattr(self, DAMAGE_STAT[slot])
+    def attack_cooldown(self, base: float, per_agility: float,
+                        min_cd: float) -> float:
+        """Attack cooldown: base − agility × per_agility, floored at min_cd.
+        Fixed for the whole combat (Combat snapshots it at start)."""
+        return max(min_cd, base - self.agility * per_agility)
+
+    def strike(self, rng: random.Random) -> tuple[int, bool]:
+        """Auto-combat hit: random damage in damage_range with a crit roll
+        ×2 of the total; (damage, crit)."""
+        lo, hi = self.damage_range()
+        damage = rng.randint(lo, hi)
         crit = rng.random() < self.crit_chance
         if crit:
             damage *= CRIT_MULTIPLIER
         return damage, crit
 
 
-def new_hero(base_hp: int) -> Hero:
-    """Level-1 hero with the starter kit: fists (melee 1–2), no ranged/armor."""
+def new_hero(base_hp: int, starters: list[Item] | None = None) -> Hero:
+    """Level-1 hero with the starter kit: starter items (из пула items/ —
+    предметы со starter = true, по одному на слот; фолбэк [DEFAULT_STARTER]).
+    Экипируются копии — пул и дефолт не мутируют."""
     hero = Hero(base_hp=base_hp)
-    hero.equip(Item(name="Кулаки", icon="👊", slot="melee", damage_min=1,
-                    damage_max=2, uses=None, armor=None, price=0))
+    for item in (starters if starters is not None else [DEFAULT_STARTER]):
+        hero.equip(replace(item))
     return hero

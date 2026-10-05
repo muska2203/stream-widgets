@@ -18,7 +18,7 @@ BASE_HP = 20
 
 def make_game(**over) -> SimpleNamespace:
     fields = dict(state="event", hero=new_hero(BASE_HP), doors=[],
-                  combat=None, combat_phase="", last_turn=None,
+                  combat=None, combat_phase="",
                   shop_items=[], time_left=0.0, run_summary=None,
                   error_message="", vote_key_words={}, overtime=False)
     fields.update(over)
@@ -26,17 +26,30 @@ def make_game(**over) -> SimpleNamespace:
 
 
 def make_mob(**over) -> Mob:
-    fields = dict(name="Гоблин", icon="👺", hp=20, damage_min=2,
-                  damage_max=5, xp=8, gold=5)
+    fields = dict(name="Гоблин", icon="👺", hp=20, damage_min=2, damage_max=4,
+                  xp=8, gold=5)
     fields.update(over)
     return Mob(**fields)
 
 
-def make_ranged(**over) -> Item:
-    fields = dict(name="Короткий лук", icon="🏹", slot="ranged",
-                  damage_min=3, damage_max=7, uses=5, armor=None, price=15)
+def make_sword(**over) -> Item:
+    fields = dict(name="Меч", icon="🗡️", slot="melee", damage_min=3,
+                  damage_max=7, armor=None, price=15)
     fields.update(over)
     return Item(**fields)
+
+
+def make_armor(**over) -> Item:
+    fields = dict(name="Кольчуга", icon="🛡️", slot="armor", damage_min=None,
+                  damage_max=None, armor=2, price=20)
+    fields.update(over)
+    return Item(**fields)
+
+
+def make_combat(game, mob: Mob | None = None, seed: int = 1) -> Combat:
+    combat = Combat(game.hero, mob or make_mob(), random.Random(seed))
+    game.combat = combat
+    return combat
 
 
 def snapshot(ui: WebUI) -> dict:
@@ -56,6 +69,7 @@ class WebUITest(unittest.TestCase):
         self.assertEqual(hero["xp"], 0)
         self.assertEqual(hero["xp_to_next"], 10)
         self.assertEqual(hero["gold"], 0)
+        self.assertEqual(hero["deaths"], 0)
         self.assertEqual((hero["hp"], hero["max_hp"]), (BASE_HP, BASE_HP))
         self.assertEqual((hero["mana"], hero["max_mana"]), (0, 0))
         self.assertEqual([st["key"] for st in hero["stats"]],
@@ -66,10 +80,19 @@ class WebUITest(unittest.TestCase):
         self.assertTrue(all(st["value"] == 0 for st in hero["stats"]))
 
         slots = hero["slots"]
+        self.assertEqual(set(slots), {"melee", "armor"})
         self.assertEqual(slots["melee"]["name"], "Кулаки")
         self.assertEqual(slots["melee"]["damage"], "1–2")
-        self.assertIsNone(slots["ranged"])
         self.assertIsNone(slots["armor"])
+
+    def test_hero_panel_armor_slot(self):
+        game = make_game()
+        game.hero.equip(make_armor())
+        s = snapshot(WebUI(game))
+        armor = s["hero"]["slots"]["armor"]
+        self.assertEqual(armor["slot_name"], "Броня")
+        self.assertEqual(armor["name"], "Кольчуга")
+        self.assertEqual(armor["armor"], 2)
 
     def test_event_doors_and_votes(self):
         doors = [Door("mob", make_mob(name="Гоблин")),
@@ -87,7 +110,7 @@ class WebUITest(unittest.TestCase):
                          ["Гоблин", "Скелет", "Магазин"])
         self.assertEqual(shown[1]["icon"], "💀")
         self.assertEqual(shown[2]["icon"], "🏪")  # иконка типа события
-        self.assertEqual(shown[0]["threat"], "HP 20 · урон 2–5")
+        self.assertEqual(shown[0]["threat"], "HP 20 · урон 2–4")
         self.assertIsNone(shown[2]["threat"])  # угроза только у моб-дверей
         self.assertTrue(all(d["votes"] == 0 and d["state"] == "idle"
                             for d in shown))
@@ -122,119 +145,147 @@ class WebUITest(unittest.TestCase):
         ui.show_error("поздняя публикация")
         self.assertIsNone(snapshot(ui)["resolve"])
 
-    def test_combat_attack_commands(self):
-        words = {"1": "меч", "2": "волк", "3": "гора"}
-        game = make_game(state="combat", combat_phase="attack",
-                         vote_key_words=words)
-        combat = Combat(game.hero, make_mob(), random.Random(1))
-        game.combat = combat
-        ui = WebUI(game)
-        s = snapshot(ui)
+    def test_combat_fight_snapshot(self):
+        game = make_game(state="combat", combat_phase="fight")
+        make_combat(game)
+        s = snapshot(WebUI(game))
         self.assertEqual(s["phase"], "combat")
-        self.assertEqual(s["combat"]["subphase"], "attack")
-        self.assertEqual(s["combat"]["mob"],
+        block = s["combat"]
+        self.assertEqual(block["subphase"], "fight")
+        self.assertEqual(block["mob"],
                          {"icon": "👺", "name": "Гоблин", "hp": 20,
-                          "max_hp": 20, "damage": "2–5"})
-        commands = s["combat"]["commands"]
-        self.assertEqual([c["n"] for c in commands], [1, 2, 3])
-        self.assertEqual([c["word"] for c in commands],
-                         ["меч", "волк", "гора"])
-        self.assertEqual([c["label"] for c in commands],
-                         ["Кулаки в голову", "Кулаки в тело",
-                          "Кулаки в ноги"])
-        self.assertEqual(commands[0]["icon"], "👊")
-        self.assertEqual(commands[0]["detail"], "урон 1–2 +0 силы")
+                          "max_hp": 20, "damage": "2–4", "cooldown": 5.0,
+                          "cd_left": 5.0})
+        self.assertEqual(block["hero_cd"], {"cooldown": 5.0, "cd_left": 5.0})
+        self.assertEqual(block["squad"], [])
+        self.assertEqual(block["events"], [])
 
-        game.hero.equip(make_ranged())
-        ui.show_combat(combat, "attack")
-        s = snapshot(ui)
-        commands = s["combat"]["commands"]
-        self.assertEqual(len(commands), 6)
-        self.assertEqual(commands[3]["label"], "Короткий лук в голову")
-        self.assertEqual(commands[3]["detail"],
-                         "урон 3–7 +0 ловк. · зарядов: 5")
-        self.assertEqual(commands[5]["label"], "Короткий лук в ноги")
-        self.assertEqual(s["hero"]["slots"]["ranged"]["uses"], 5)
-
-    def test_combat_defense_and_votes(self):
-        game = make_game(state="combat", combat_phase="defense")
-        game.combat = Combat(game.hero, make_mob(), random.Random(1))
+    def test_combat_squad_entries_in_join_order(self):
+        game = make_game(state="combat", combat_phase="fight")
+        combat = make_combat(game)
+        combat.join("bob")
+        combat.join("alice")
         ui = WebUI(game)
-        labels = [c["label"] for c in snapshot(ui)["combat"]["commands"]]
-        self.assertEqual(labels, ["Защитить голову", "Защитить тело",
-                                  "Защитить ноги"])
+        ui.show_combat(combat, "fight")  # републикация отряда (как в Game)
+        squad = snapshot(ui)["combat"]["squad"]
+        self.assertEqual([u["nick"] for u in squad], ["bob", "alice"])
+        for entry in squad:
+            self.assertEqual(set(entry), {"nick", "emoji", "damage",
+                                          "cooldown", "cd_left", "active"})
+            self.assertTrue(entry["emoji"])
+            self.assertTrue(entry["active"])
+            self.assertGreaterEqual(entry["cooldown"], 3.0)
+            self.assertLessEqual(entry["cooldown"], 8.0)
+            self.assertGreaterEqual(entry["cd_left"], 0)
+            self.assertLessEqual(entry["cd_left"], entry["cooldown"])
+            lo, hi = entry["damage"].split("–")
+            self.assertGreaterEqual(int(lo), 1)
+            self.assertGreaterEqual(int(hi), int(lo))
 
-        ui.update_votes({"2": 4}, ["2"])
-        commands = snapshot(ui)["combat"]["commands"]
-        self.assertEqual((commands[1]["votes"], commands[1]["state"]),
-                         (4, "leader"))
-
-    def test_combat_outcome_hero_attack(self):
-        game = make_game(state="combat", combat_phase="attack")
-        combat = Combat(game.hero, make_mob(), random.Random(1))
-        game.combat = combat
+    def test_combat_events_snapshot(self):
+        game = make_game(state="combat", combat_phase="fight")
+        game.hero.equip(make_sword(damage_min=3, damage_max=3))
+        combat = make_combat(game, make_mob(damage_min=0, damage_max=0,
+                                            cooldown=99.0))
         ui = WebUI(game)
-
-        result = combat.hero_turn("melee", "head")
-        game.combat_phase = "outcome"
-        game.last_turn = result
-        ui.show_combat_outcome(result)
+        # детерминированный кадр: вырожденный урон, крита нет, моб молчит
+        events = combat.update(5.0)  # КД героя 5.0 — первая атака
+        self.assertEqual(len(events), 1)
+        ui.show_combat_events(events)
         block = snapshot(ui)["combat"]
-        self.assertEqual(block["subphase"], "outcome")
-        self.assertEqual(block["commands"], [])
-        self.assertEqual(block["mob"]["hp"], combat.mob_hp)
-        turn = block["turn"]
-        self.assertEqual(turn["actor"], "hero")
-        self.assertEqual(turn["weapon_label"], "Кулаки")
-        self.assertEqual(turn["direction_name"], "удар в голову")
-        self.assertEqual(turn["target_hp"], combat.mob_hp)
-        self.assertFalse(turn["crit"])
+        self.assertEqual(block["events"],
+                         [{"seq": 1, "attacker": "hero", "target": "mob",
+                           "damage": 3, "crit": False, "armor_absorbed": 0,
+                           "target_hp": 17}])
+        self.assertEqual(block["mob"]["hp"], 17)  # HP моба на плашке живое
 
-    def test_combat_outcome_mob_attack(self):
-        game = make_game(state="combat", combat_phase="defense")
-        combat = Combat(game.hero, make_mob(), random.Random(1))
-        game.combat = combat
+    def test_publish_rereads_live_cooldowns(self):
+        game = make_game(state="combat", combat_phase="fight")
+        combat = make_combat(game, make_mob(damage_min=0, damage_max=0,
+                                            cooldown=99.0))
         ui = WebUI(game)
+        combat.update(2.0)  # без событий: КД тикают, атак ещё нет
+        ui.show_combat_events([])
+        block = snapshot(ui)["combat"]
+        self.assertEqual(block["hero_cd"]["cd_left"], 3.0)
+        self.assertEqual(block["mob"]["cd_left"], 97.0)
 
-        result = combat.mob_turn("head")
-        game.combat_phase = "outcome"
-        ui.show_combat_outcome(result)
-        turn = snapshot(ui)["combat"]["turn"]
-        self.assertEqual(turn["actor"], "mob")
-        self.assertIsNone(turn["weapon"])
-        self.assertIsNone(turn["weapon_label"])
-        self.assertEqual(turn["armor"], 0)  # броня героя для строки итога
-        self.assertEqual(turn["target_hp"], game.hero.hp)
-        self.assertEqual(snapshot(ui)["hero"]["hp"], game.hero.hp)
+    def test_fresh_snapshot_extrapolates_cooldowns(self):
+        game = make_game(state="combat", combat_phase="fight")
+        combat = make_combat(game, make_mob(damage_min=0, damage_max=0,
+                                            cooldown=99.0))
+        combat.join("bob")
+        ui = WebUI(game)
+        ui.show_combat(combat, "fight")
+        stored = snapshot(ui)["combat"]
+        ui._published_at -= 2.0  # публикация была 2 с назад
+        fresh = ui.fresh_snapshot()["combat"]
+        self.assertEqual(fresh["hero_cd"]["cd_left"],
+                         round(stored["hero_cd"]["cd_left"] - 2.0, 2))
+        self.assertEqual(fresh["mob"]["cd_left"],
+                         round(stored["mob"]["cd_left"] - 2.0, 2))
+        self.assertEqual(
+            fresh["squad"][0]["cd_left"],
+            round(max(0.0, stored["squad"][0]["cd_left"] - 2.0), 2))
+        self.assertEqual(snapshot(ui)["combat"], stored)  # стор не мутировал
+        # большой возраст — кламп в 0
+        ui._published_at -= 1000.0
+        clamped = ui.fresh_snapshot()["combat"]
+        self.assertEqual(clamped["hero_cd"]["cd_left"], 0)
+        self.assertEqual(clamped["mob"]["cd_left"], 0)
+        self.assertEqual(clamped["squad"][0]["cd_left"], 0)
+        # вне боя — тот же объект, без копий
+        ui.show_rest(game.hero)
+        self.assertIs(ui.fresh_snapshot(), ui.snapshot)
+        json.dumps(ui.fresh_snapshot(), ensure_ascii=False)  # сериализуем
+
+    def test_events_queue_keeps_last_50(self):
+        game = make_game(state="combat", combat_phase="fight")
+        make_combat(game)
+        ui = WebUI(game)
+        events = [SimpleNamespace(seq=i, attacker="hero", target="mob",
+                                  damage=1, crit=False, armor_absorbed=0,
+                                  target_hp=100 - i)
+                  for i in range(1, 61)]
+        ui.show_combat_events(events)
+        shown = snapshot(ui)["combat"]["events"]
+        self.assertEqual(len(shown), 50)
+        self.assertEqual([e["seq"] for e in shown], list(range(11, 61)))
+
+    def test_update_votes_ignored_in_combat(self):
+        game = make_game(state="combat", combat_phase="fight")
+        make_combat(game)
+        ui = WebUI(game)
+        snap = ui.snapshot
+        ui.update_votes({"1": 5}, ["1"])  # в бою голосований нет
+        self.assertIs(ui.snapshot, snap)  # без републикации
 
     def test_combat_end_subphase_from_game(self):
-        game = make_game(state="combat", combat_phase="attack",
+        game = make_game(state="combat", combat_phase="fight",
                          time_left=5.0)
-        game.combat = Combat(game.hero, make_mob(), random.Random(1))
+        make_combat(game)
         ui = WebUI(game)
         game.combat_phase = "end"  # Game входит в COMBAT_END без вызова ui
         game.time_left = 4.0
         ui.update_timer()
         block = snapshot(ui)["combat"]
         self.assertEqual(block["subphase"], "end")
-        self.assertEqual(block["commands"], [])
 
-    def test_new_combat_resets_turn(self):
-        game = make_game(state="combat", combat_phase="attack")
-        combat1 = Combat(game.hero, make_mob(), random.Random(1))
-        game.combat = combat1
+    def test_new_combat_resets_block(self):
+        game = make_game(state="combat", combat_phase="fight")
+        combat1 = make_combat(game)
         ui = WebUI(game)
-        result = combat1.hero_turn("melee", "head")
-        game.combat_phase = "outcome"
-        ui.show_combat_outcome(result)
-        self.assertIsNotNone(snapshot(ui)["combat"]["turn"])
+        combat1.join("bob")
+        ui.show_combat(combat1, "fight")
+        ui.show_combat_events(combat1.update(5.0))
+        self.assertNotEqual(snapshot(ui)["combat"]["events"], [])
 
         combat2 = Combat(game.hero, make_mob(name="Скелет"), random.Random(2))
         game.combat = combat2
-        game.combat_phase = "attack"
-        ui.show_combat(combat2, "attack")
+        ui.show_combat(combat2, "fight")
         block = snapshot(ui)["combat"]
-        self.assertIsNone(block["turn"])
+        self.assertEqual(block["events"], [])
+        self.assertEqual(block["squad"], [])
         self.assertEqual(block["mob"]["name"], "Скелет")
 
     def test_levelup_and_votes(self):
@@ -247,8 +298,9 @@ class WebUITest(unittest.TestCase):
         self.assertEqual(len(options), 5)
         self.assertEqual(options[0], {"n": 1, "word": None, "key": "strength",
                                       "name": "Сила", "value": 2,
-                                      "hint": "+1 к урону ближним оружием",
+                                      "hint": "+1 к урону оружием",
                                       "votes": 0, "state": "idle"})
+        self.assertEqual(options[1]["hint"], "−0.5 с к кулдауну атаки")
         self.assertEqual(options[4]["key"], "luck")
 
         ui.update_votes({"5": 3, "1": 1}, ["5"])
@@ -258,25 +310,23 @@ class WebUITest(unittest.TestCase):
         self.assertEqual(options[0]["state"], "active")
 
     def test_shop_items_and_votes(self):
-        items = [make_ranged(),
-                 Item(name="Кольчуга", icon="🛡️", slot="armor",
-                      damage_min=None, damage_max=None, uses=None, armor=2,
-                      price=20)]
+        items = [make_sword(), make_armor()]
         ui = WebUI(make_game(state="shop", shop_items=items))
         s = snapshot(ui)
         self.assertEqual(s["phase"], "shop")
         shown = s["shop"]["items"]
         self.assertEqual([o["n"] for o in shown], [1, 2])
-        self.assertEqual(shown[0], {"n": 1, "word": None, "icon": "🏹",
-                                    "label": "Короткий лук",
-                                    "slot_name": "дальнее",
-                                    "detail": "урон 3–7, зарядов: 5",
-                                    "current": "сейчас: пусто",
+        self.assertEqual(shown[0], {"n": 1, "word": None, "icon": "🗡️",
+                                    "label": "Меч",
+                                    "slot_name": "ближнее",
+                                    "detail": "урон 3–7",
+                                    "current": "сейчас: Кулаки (урон 1–2)",
                                     "price": 15, "votes": 0,
                                     "state": "idle"})
         self.assertEqual(shown[1]["label"], "Кольчуга")
         self.assertEqual(shown[1]["slot_name"], "броня")
-        self.assertEqual(shown[1]["detail"], "−2 урона")
+        self.assertEqual(shown[1]["detail"], "броня 2")
+        self.assertEqual(shown[1]["current"], "сейчас: пусто")
         self.assertEqual(s["shop"]["exit"],
                          {"n": 0, "word": None, "label": "Выйти", "votes": 0,
                           "state": "idle"})
@@ -299,12 +349,14 @@ class WebUITest(unittest.TestCase):
         self.assertEqual(s["hero"]["hp"], 5)  # панель героя живая
 
     def test_gameover(self):
-        summary = {"level": 3, "kills": 5, "gold_earned": 42,
+        summary = {"kills": 5, "gold_earned": 42,
                    "defeated": ["Гнусный viewer1"]}
-        ui = WebUI(make_game(state="game_over", run_summary=summary))
+        ui = WebUI(make_game(state="game_over", run_summary=summary,
+                             deaths=2))
         s = snapshot(ui)
         self.assertEqual(s["phase"], "game_over")
         self.assertEqual(s["game_over"], summary)
+        self.assertEqual(s["hero"]["deaths"], 2)  # счётчик и на панели героя
 
     def test_error(self):
         ui = WebUI(make_game(state="error", error_message="Пул мобов пуст"))
@@ -364,15 +416,17 @@ class WebUITest(unittest.TestCase):
         ui.show_event([Door("mob", make_mob())])
         combat = Combat(game.hero, make_mob(), random.Random(1))
         game.combat = combat
-        game.combat_phase = "attack"
-        ui.show_combat(combat, "attack")
+        game.combat_phase = "fight"
+        ui.show_combat(combat, "fight")
         snapshot(ui)
-        game.combat_phase = "outcome"
-        ui.show_combat_outcome(combat.hero_turn("melee", "head"))
+        ui.show_combat_events(combat.update(5.0))
+        snapshot(ui)
+        game.combat_phase = "end"
+        ui.show_combat(combat, "end")
         snapshot(ui)
         ui.show_levelup(game.hero)
         snapshot(ui)
-        ui.show_shop([make_ranged()])
+        ui.show_shop([make_sword(), make_armor()])
         snapshot(ui)
         ui.show_rest(game.hero)
         snapshot(ui)

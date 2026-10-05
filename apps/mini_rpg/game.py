@@ -1,5 +1,5 @@
 """Game state machine: RUN_START -> EVENT -> (COMBAT | SHOP | REST) ->
-(LEVELUP) -> EVENT -> ... -> GAME_OVER -> RUN_START (docs/DESIGN.md).
+(LEVELUP) -> EVENT -> ... -> GAME_OVER -> EVENT (docs/DESIGN.md).
 
 Pure Python: all timing runs through update(dt) called from the main loop
 (main.py, этап 8); chat enters via the single handle_chat_message(). The
@@ -18,12 +18,10 @@ from streamkit import ChatterRegistry, VoteLoop, VoteWords
 from apps.mini_rpg.config import Config
 from apps.mini_rpg.core import (DEFAULT_ITEMS_DIR, DEFAULT_MOBS_DIR,
                                 DEFAULT_PREFIXES, DEFAULT_PREFIXES_PATH,
-                                Combat, ContentError, Hero, Item, Mob,
-                                TurnResult, attack_choice, attack_commands,
-                                defense_choice, defense_commands,
-                                door_commands, levelup_choice,
-                                levelup_commands, load_items, load_mobs,
-                                load_prefixes, new_hero, scale_mob,
+                                Combat, CombatEvent, ContentError, Hero, Item,
+                                Mob, door_commands, find_starters,
+                                levelup_choice, levelup_commands, load_items,
+                                load_mobs, load_prefixes, new_hero, scale_mob,
                                 shop_commands)
 from apps.mini_rpg.persistence import load_checkpoint, save_checkpoint
 
@@ -32,7 +30,10 @@ RUN_START, EVENT, COMBAT, SHOP, REST, LEVELUP, GAME_OVER, ERROR = (
     "error")
 
 # combat sub-phases (Game.state == COMBAT)
-ATTACK, DEFENSE, OUTCOME, COMBAT_END = ("attack", "defense", "outcome", "end")
+FIGHT, COMBAT_END = "fight", "end"
+
+# команда вступления в отряд автобоя (один раз за бой на чаттера)
+JOIN_COMMAND = "бой"
 
 DOORS = 3
 
@@ -69,7 +70,8 @@ class NullUI:
     def show_combat(self, combat: Combat, phase: str) -> None:
         pass
 
-    def show_combat_outcome(self, result: TurnResult) -> None:
+    def show_combat_events(self, events: list[CombatEvent]) -> None:
+        """Attacks resolved during one frame of the fight."""
         pass
 
     def show_shop(self, items: list[Item]) -> None:
@@ -133,10 +135,10 @@ class Game:
         self.shop_items: list[Item] = []   # товары текущего магазина
         self.combat: Combat | None = None
         self.combat_phase = ""
-        self.last_turn: TurnResult | None = None
         self.pending_levelups = 0
         self.kills = 0                 # убито мобов за забег
         self.gold_earned = 0           # заработано золота за забег
+        self.deaths = 0                # смертей героя за забег
         self.defeated: list[str] = []  # боевые клички поверженных за забег
         self.run_summary: dict | None = None
         self.error_message = ""
@@ -150,6 +152,7 @@ class Game:
             self.hero = restored["hero"]
             self.kills = restored["kills"]
             self.gold_earned = restored["gold_earned"]
+            self.deaths = restored["deaths"]
             self.defeated = restored["defeated"]
             self.pending_levelups = restored["pending_levelups"]
             print(f"progress restored: level {self.hero.level}, "
@@ -161,22 +164,27 @@ class Game:
     # --- run / event -----------------------------------------------------
 
     def enter_run_start(self) -> None:
-        """New run: fresh level-1 hero, reset run counters, first event."""
+        """Very first run (no save): fresh level-1 hero, first event."""
         self.state = RUN_START
-        self.hero = new_hero(self.cfg.base_hp)
+        try:
+            starters = find_starters(load_items(self.items_dir))
+        except ContentError as e:
+            self._enter_error(f"Ошибка пула предметов: {e}")
+            return
+        self.hero = new_hero(self.cfg.base_hp, starters)
         self.kills = 0
         self.gold_earned = 0
+        self.deaths = 0
         self.defeated = []
         self.pending_levelups = 0
         self.run_summary = None
-        self._save_checkpoint()  # смерть/новый забег стирает прошлый прогресс
+        self._save_checkpoint()
         print("new run started", flush=True)
         self.enter_event()
 
     def enter_event(self) -> None:
         """3 doors with mixed events; pools and prefixes reload on entry."""
         self.combat = None
-        self.last_turn = None
         try:
             mobs = load_mobs(self.mobs_dir)
         except ContentError as e:
@@ -187,7 +195,9 @@ class Game:
                               f"в {self.mobs_dir}")
             return
         try:
-            self.items_pool = load_items(self.items_dir)
+            # стартовые предметы (starter = true) в магазин не попадают
+            self.items_pool = [it for it in load_items(self.items_dir)
+                               if not it.starter]
         except ContentError as e:
             self._enter_error(f"Ошибка пула предметов: {e}")
             return
@@ -252,11 +262,24 @@ class Game:
         # Боевая кличка присваивается копией (replace): дверной mob не трогаем;
         # Combat скопирует её дальше через scale_mob(level_scale=0).
         mob = replace(mob, name=self._battle_name(mob))
-        self.combat = Combat(self.hero, mob, self.rng, level_scale=0)
+        self.combat = Combat(self.hero, mob, self.rng,
+                             hero_cooldown=self.cfg.hero_cooldown,
+                             agility_cd_reduction=self.cfg.agility_cd_reduction,
+                             min_cooldown=self.cfg.min_cooldown,
+                             chatter_cd_min=self.cfg.chatter_cd_min,
+                             chatter_cd_max=self.cfg.chatter_cd_max,
+                             chat_pct=self.cfg.chat_damage_pct,
+                             chat_cap=self.cfg.chat_damage_cap_pct,
+                             level_scale=0)
         self.state = COMBAT
+        self.combat_phase = FIGHT
+        self.vote_loop = None
+        # глобального таймера в бою нет — кулдаун у каждого юнита; 0 замораживает
+        # републикации update_timer (WebUI публикует только по смене секунды)
+        self.time_left = 0.0
+        self.ui.show_combat(self.combat, FIGHT)
         print(f"combat started: {mob.name} (hero hp {self.hero.hp})",
               flush=True)
-        self._open_attack_vote()
 
     def _battle_name(self, mob: Mob) -> str:
         """«Префикс Ник»; без базы чаттеров — «Префикс Тип»."""
@@ -265,47 +288,6 @@ class Game:
         if nick is not None:
             return f"{prefix} {nick}"
         return f"{prefix} {mob.name}"
-
-    def _open_attack_vote(self) -> None:
-        self.combat_phase = ATTACK
-        validate = self._assign_words(
-            attack_commands(self.hero.ranged is not None))
-        self.ui.show_combat(self.combat, ATTACK)
-        self._open_vote(self.cfg.combat_duration, validate,
-                        self.on_attack_end)
-
-    def on_attack_end(self, winner: str | None, counts: dict[str, int],
-                      n_voters: int) -> None:
-        weapon, direction = attack_choice(winner)
-        self.last_turn = self.combat.hero_turn(weapon, direction)
-        self._enter_outcome()
-
-    def _open_defense_vote(self) -> None:
-        self.combat_phase = DEFENSE
-        validate = self._assign_words(defense_commands())
-        self.ui.show_combat(self.combat, DEFENSE)
-        self._open_vote(self.cfg.combat_duration, validate,
-                        self.on_defense_end)
-
-    def on_defense_end(self, winner: str | None, counts: dict[str, int],
-                       n_voters: int) -> None:
-        self.last_turn = self.combat.mob_turn(defense_choice(winner))
-        self._enter_outcome()
-
-    def _enter_outcome(self) -> None:
-        """Pause showing the turn result before the next vote opens."""
-        self.combat_phase = OUTCOME
-        self.vote_loop = None
-        self.time_left = self.cfg.combat_outcome_pause
-        self.ui.show_combat_outcome(self.last_turn)
-
-    def _after_outcome(self) -> None:
-        if self.combat.finished:
-            self._finish_combat()
-        elif self.last_turn.actor == "hero":
-            self._open_defense_vote()
-        else:
-            self._open_attack_vote()
 
     def _finish_combat(self) -> None:
         if not self.combat.hero_won:
@@ -395,15 +377,35 @@ class Game:
     # --- game over / error -------------------------------------------------
 
     def enter_game_over(self) -> None:
-        """Run summary screen, then an automatic new run after the pause."""
+        """Death: summary screen, then the run continues with the same hero.
+        Penalty: gold and current-level XP are lost and the run counters
+        (kills, gold earned, defeated) reset — the summary screen shows
+        them captured before the reset; level/stats/gear and the deaths
+        counter are kept. The hero revives at full HP/mana and the
+        penalized state is persisted at once."""
         self.state = GAME_OVER
         self.vote_loop = None
         self.time_left = self.cfg.gameover_pause
-        self.run_summary = {"level": self.hero.level, "kills": self.kills,
+        self.deaths += 1
+        self.run_summary = {"kills": self.kills,
                             "gold_earned": self.gold_earned,
                             "defeated": list(self.defeated)}
+        self.kills = 0
+        self.gold_earned = 0
+        self.defeated = []
+        self.hero.gold = 0
+        self.hero.xp = 0
+        self.hero.hp = self.hero.max_hp
+        self.hero.mana = self.hero.max_mana
+        self._save_checkpoint()  # прогресс пишется уже после сброса
         self.ui.show_gameover(self.run_summary)
-        print(f"game over: {self.run_summary}", flush=True)
+        print(f"game over: {self.run_summary} (gold/xp lost, "
+              "run stats reset)", flush=True)
+
+    def _respawn(self) -> None:
+        """Back from the summary screen: the run goes on, fresh event."""
+        self.run_summary = None
+        self.enter_event()
 
     def _enter_error(self, message: str) -> None:
         self.state = ERROR
@@ -418,6 +420,13 @@ class Game:
         """Single entry point for chat commands (mock chat or Twitch)."""
         # любой написавший попадает в базу чаттеров — до фильтрации по фазе
         self.chatters.add(user)
+        # вступление в отряд автобоя — не голосование, vote_loop в бою нет
+        if self.state == COMBAT and self.combat_phase == FIGHT and \
+                self.combat is not None and \
+                text.strip().lower() == JOIN_COMMAND:
+            if self.combat.join(user):
+                self.ui.show_combat(self.combat, FIGHT)
+            return
         if self.vote_loop is None or not self.vote_loop.active:
             return
         if self.vote_loop.vote(user, text):
@@ -429,6 +438,15 @@ class Game:
     def update(self, dt: float) -> None:
         if self.state not in (EVENT, COMBAT, SHOP, REST, LEVELUP, GAME_OVER):
             return  # RUN_START транзитный, ERROR ждёт починки пула
+        if self.state == COMBAT and self.combat_phase == FIGHT:
+            # бой продвигается каждый кадр (per-unit кулдауны), таймера фазы
+            # нет — update_timer не зовём, публикации идут от событий боя
+            events = self.combat.update(dt)
+            if events:
+                self.ui.show_combat_events(events)
+            if self.combat.finished:
+                self._finish_combat()
+            return
         self.time_left -= dt
         self.ui.update_timer()
         if self.time_left > 0:
@@ -444,14 +462,12 @@ class Game:
             # коллбэк может сменить фазу и обнулить vote_loop — не трогаем
             # его после finish()
             self.vote_loop.finish()
-        elif self.state == COMBAT and self.combat_phase == OUTCOME:
-            self._after_outcome()
         elif self.state == COMBAT and self.combat_phase == COMBAT_END:
             self.enter_event()
         elif self.state in (SHOP, REST):
             self.enter_event()
         elif self.state == GAME_OVER:
-            self.enter_run_start()
+            self._respawn()
 
     def _assign_words(self, classic: dict[str, str]):
         """Build the round's alias table (key -> chat command) and return
@@ -470,7 +486,10 @@ class Game:
 
     def current_vote_words(self) -> list[str]:
         """Chat commands of the currently open vote (pool for the mock
-        chat; random words in "words" mode, classic commands otherwise)."""
+        chat; random words in "words" mode, classic commands otherwise).
+        During the auto-battle — the squad join command."""
+        if self.state == COMBAT and self.combat_phase == FIGHT:
+            return [JOIN_COMMAND]
         return list(self.vote_key_words.values())
 
     def _open_vote(self, duration: float, validate, on_end) -> None:

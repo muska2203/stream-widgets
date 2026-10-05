@@ -1,0 +1,7 @@
+name = "Кулаки"
+icon = "👊"
+slot = "melee"
+damage_min = 2
+damage_max = 3
+price = 0
+starter = true

@@ -146,7 +146,6 @@
   #hp-bar   .fill { background: repeating-linear-gradient(-45deg, var(--dust-red) 0 10px, var(--dust-red-d) 10px 20px); }
   #mana-bar .fill { background: repeating-linear-gradient(-45deg, var(--dust-blue) 0 10px, var(--dust-blue-d) 10px 20px); }
   #xp-bar   .fill { background: repeating-linear-gradient(-45deg, var(--dust-olive) 0 10px, var(--dust-olive-d) 10px 20px); }
-  #mob-hp-bar .fill { background: repeating-linear-gradient(-45deg, var(--dust-red) 0 10px, var(--dust-red-d) 10px 20px); }
   #xp-bar { height: 22px; }
   .bar .num {
     position: absolute; inset: 0;
@@ -183,6 +182,30 @@
     font-size: 14px;
   }
   #gold-chip .cap { font-size: 12px; font-weight: 700; opacity: .75; }
+  /* смерти — чип-череп рядом с золотом */
+  #deaths-chip {
+    align-self: flex-start;
+    display: inline-flex;
+    align-items: center;
+    gap: .4em;
+    padding: 4px 14px 4px 8px;
+    background: var(--paper);
+    border: var(--bw) solid var(--ink);
+    border-radius: 999px;
+    box-shadow: 4px 4px 0 var(--ink);
+    font-weight: 900;
+    font-size: 19px;
+    transform: rotate(-1deg);
+  }
+  #deaths-chip .coin {
+    width: 26px; height: 26px;
+    background: var(--paper-deep);
+    border: 2.5px solid var(--ink);
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 14px;
+  }
+  #deaths-chip .cap { font-size: 12px; font-weight: 700; opacity: .75; }
 
   /* ===================== СТАТЫ: стикеры-чипы ===================== */
   #stats-row { display: flex; gap: 9px; }
@@ -365,6 +388,64 @@
   .opt .sub { font-size: 12px; font-weight: 600; color: #4a4a4a; }
   .opt .sub b { background: var(--paper-deep); border-radius: 5px; padding: 0 4px;
                 border: 1.5px solid var(--ink); }
+  /* накопительная шкала голосов в бою: доли = среднее голосовавших за
+     последние голосования, каждый голос заливает одну долю; заполнение
+     линейно масштабирует значение (урон/блок) между min и max шкалы */
+  .opt .vote-box { display: block; margin-top: 6px; }
+  .opt .vote-bar {
+    display: block;
+    position: relative;
+    height: 13px;
+    border: 2px solid var(--ink);
+    border-radius: 999px;
+    background: var(--paper-deep);
+    overflow: hidden;
+  }
+  .opt .vote-bar .fill {
+    display: block;           /* span: без block height не применяется */
+    width: 0;
+    height: 100%;
+    background: repeating-linear-gradient(-45deg, var(--dust-olive) 0 7px,
+                                          var(--dust-olive-d) 7px 14px);
+    transition: width .2s ease;
+  }
+  /* разделители долей: шаг задаётся инлайн-стилем (100% / segments) */
+  .opt .vote-bar .segs {
+    position: absolute; inset: 0;
+    background-image: linear-gradient(90deg, var(--ink) 1.5px,
+                                      transparent 1.5px);
+  }
+  /* линейка значений под шкалой: риска + число на каждое значение
+     (урон/блок), текущее значение подсвечено классом .cur */
+  .opt .bar-labels {
+    display: block;
+    position: relative;
+    height: 16px;
+    margin-top: 2px;
+  }
+  .opt .bar-labels .bar-val {
+    position: absolute; top: 0;
+    transform: translateX(-50%);
+    padding-top: 5px;
+    font-size: 11px; font-weight: 700; color: #8a8a8a;
+  }
+  .opt .bar-labels .bar-val::before {   /* риска над числом */
+    content: "";
+    position: absolute; top: 0; left: 50%;
+    width: 2px; height: 4px;
+    background: var(--ink);
+    transform: translateX(-50%);
+  }
+  /* крайние числа прижаты к краям шкалы, риски — по краям же */
+  .opt .bar-labels .bar-val:first-child { transform: none; }
+  .opt .bar-labels .bar-val:first-child::before { left: 2px; }
+  .opt .bar-labels .bar-val:last-child { transform: translateX(-100%); }
+  .opt .bar-labels .bar-val:last-child::before { left: calc(100% - 2px); }
+  .opt .bar-labels .bar-val.cur {
+    color: var(--ink);
+    font-weight: 900;
+  }
+  .opt .bar-labels .bar-val.cur::before { height: 6px; width: 3px; }
   .opt .votes {
     flex: none;
     display: flex; align-items: center; gap: 4px;
@@ -444,67 +525,335 @@
   }
   .door-card .votes { font-weight: 900; font-size: 15px; }
 
-  /* ===================== КАРТОЧКА МОБА ===================== */
-  #mob-card {
+  /* ===================== СЦЕНА БОЯ (battle-v2: круглые юниты, per-unit КД) ===================== */
+  /* Макет designs/battle-v2.html ужат под ширину #stage (520px):
+     зоны 500+74+340 → 276+44+186 (+gap 6×2 = 518); поле 500×440 → 276×245;
+     жетоны: чаттер 60→40, герой 84→56, моб 118→76. */
+  #combat {
+    position: relative;            /* якорь для #end-overlay */
     display: flex;
-    align-items: center;
-    gap: 13px;
-    padding: 11px 14px;
-    background: #e9dfd2;
+    align-items: stretch;
+    gap: 6px;
   }
-  #mob-card .ic {
-    font-size: 52px;
-    width: 76px; height: 76px;
+  /* СЛЕВА — дружественная зона: ХП героя сверху, поле с юнитами ниже */
+  #party-zone {
+    width: 276px;
     flex: none;
-    background: var(--paper);
-    border: var(--bw) solid var(--ink);
-    border-radius: 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  /* СПРАВА — вражеская зона: ХП моба сверху, моб по центру */
+  #enemy-zone {
+    width: 186px;
+    flex: none;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  /* звёздный значок VS между сторонами */
+  #vs-burst {
+    align-self: center;
+    flex: none;
+    width: 44px; height: 44px;
     display: flex; align-items: center; justify-content: center;
-    box-shadow: 3px 3px 0 var(--ink);
-    transform: rotate(-2deg);
+    background: var(--accent);
+    clip-path: polygon(100% 50%, 86.7% 59.8%, 93.3% 75%, 76.9% 76.9%, 75% 93.3%,
+      59.8% 86.7%, 50% 100%, 40.2% 86.7%, 25% 93.3%, 23.1% 76.9%, 6.7% 75%,
+      13.3% 59.8%, 0% 50%, 13.3% 40.2%, 6.7% 25%, 23.1% 23.1%, 25% 6.7%,
+      40.2% 13.3%, 50% 0%, 59.8% 13.3%, 75% 6.7%, 76.9% 23.1%, 93.3% 25%,
+      86.7% 40.2%);
+    filter: drop-shadow(2px 2px 0 var(--ink));
+    font-size: 15px; font-weight: 900;
+    transform: rotate(-8deg);
+    animation: vsPulse 1.6s ease-in-out infinite;
   }
-  #mob-card .info { flex: 1; min-width: 0; }
-  #mob-card .nm { font-size: 21px; font-weight: 900; }
-  #mob-card .dmg { font-size: 13px; font-weight: 800; margin: 2px 0 6px; }
-  #mob-card .dmg b { background: var(--dust-red); color: #fff; border-radius: 6px;
-                     padding: 0 6px; border: 2px solid var(--ink); }
+  @keyframes vsPulse {
+    0%, 100% { transform: rotate(-8deg) scale(1); }
+    50%      { transform: rotate(-4deg) scale(1.1); }
+  }
 
-  /* ===================== ИТОГ ХОДА ===================== */
-  .outcome-row {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    padding: 9px 12px;
-    background: var(--paper);
-    border: var(--bw) solid var(--ink);
-    border-radius: 15px;
-    box-shadow: 4px 4px 0 var(--ink);
-    font-size: 15px; font-weight: 700;
-    line-height: 1.3;
-  }
-  .outcome-row .ic { font-size: 26px; flex: none; }
-  .outcome-row .who {
-    flex: none;
-    font-weight: 900;
-    background: var(--dust-blue); color: #fff;
-    border: 2px solid var(--ink); border-radius: 7px;
-    padding: 0 7px;
-  }
-  .outcome-row.mob .who { background: var(--dust-red); }
-  .stamp {                         /* «печать» КРИТ / БЛОК */
-    display: inline-block;
-    font-weight: 900;
+  /* полосы HP сверху каждой зоны (стиль .bar общий с панелью героя) */
+  .bar.hp .fill { background: repeating-linear-gradient(-45deg, var(--dust-red) 0 10px, var(--dust-red-d) 10px 20px); }
+  .zone-hp { flex: none; }
+  .zone-hp .who-tag {
+    position: absolute;
+    left: 10px; top: 50%;
+    transform: translateY(-50%);
+    z-index: 2;
+    max-width: 44%;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    font-size: 12px; font-weight: 900;
     color: #fff;
-    background: var(--dust-red);
-    border: 2.5px solid var(--ink);
-    border-radius: 8px;
-    padding: 1px 8px;
-    transform: rotate(-3deg);
+    text-shadow: 1.5px 1.5px 0 var(--ink), -1px -1px 0 var(--ink),
+                 1px -1px 0 var(--ink), -1px 1px 0 var(--ink);
+  }
+
+  /* свободное поле без сетки: юниты абсолютно позиционируются JS-ом
+     вокруг центра; масштаб «отдаления» — transform: scale на #field-inner */
+  #field {
+    position: relative;
+    flex: 1;
+    min-height: 245px;
+  }
+  #field-inner {
+    position: absolute;
+    inset: 0;
+    transform-origin: 50% 50%;
+    transition: transform .6s cubic-bezier(.3, 1.3, .4, 1);  /* плавный zoom */
+  }
+
+  /* ===================== КРУГЛЫЙ ЮНИТ ===================== */
+  /* обёртка: абсолютная позиция на поле (left/top ставит JS) */
+  .unit {
+    position: absolute;
+    transform: translate(-50%, -50%);
+  }
+  /* внутренняя часть: на ней играют анимации выпада/тряски */
+  .unit-inner {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+  /* ник над юнитом */
+  .unit .nick {
+    max-width: 96px;
+    margin-bottom: 2px;
+    font-size: 11px; font-weight: 900;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    background: var(--paper);
+    border: 2px solid var(--ink);
+    border-radius: 7px;
+    padding: 0 6px;
     box-shadow: 2px 2px 0 var(--ink);
   }
-  .stamp.block { background: var(--dust-olive); }
-  .num-hl { background: var(--paper-deep); border: 1.5px solid var(--ink);
-            border-radius: 5px; padding: 0 4px; font-weight: 900; }
+  .unit.hero .nick { font-size: 13px; padding: 1px 9px; }
+  .unit.enemy .nick { font-size: 13px; padding: 2px 10px;
+                      background: #e9dfd2; max-width: 160px; }
+  /* средний ряд: пилюли слева | колонка «ник + жетон» */
+  .unit .mid { display: flex; align-items: center; gap: 4px; }
+  /* ник центрируется относительно КРУГА юнита, а не всей карточки */
+  .unit .token-col {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+  /* пилюли урона — колонкой СЛЕВА от жетона, заходят на круг юнита */
+  /* колонка пилюль урона/брони — заезжает на круг слева. Привязана
+     АБСОЛЮТНО к жетону (внутри .token), а не в потоке .mid: иначе она
+     налезала на край .token-col, а при широком нике (колонка шире жетона,
+     жетон центрируется) пилюли уплывали от круга */
+  .unit .side {
+    position: absolute;
+    z-index: 3;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    align-items: flex-end;
+    top: 50%;
+    right: calc(100% - 11px);
+    transform: translateY(-50%);
+  }
+  .unit.chatter .side { right: calc(100% - 8px); }
+  .unit.enemy .side { right: calc(100% - 14px); }
+
+  /* жетон-«часы» с кольцом КД (conic-gradient, JS крутит заполнение) */
+  .token {
+    position: relative;
+    flex: none;
+    border-radius: 50%;
+    border: var(--bw) solid var(--ink);
+    box-shadow: 2px 2px 0 var(--ink);
+    background: conic-gradient(var(--accent) 0deg, var(--paper-deep) 0deg);
+  }
+  .token .face {
+    position: absolute; inset: 4px;
+    border-radius: 50%;
+    background: var(--paper);
+    border: 2px solid var(--ink);
+    display: flex; align-items: center; justify-content: center;
+  }
+  .unit.chatter .token { width: 40px; height: 40px; border-width: 2.5px; }
+  .unit.chatter .token .face { font-size: 18px; inset: 3px; }
+  .unit.hero .token { width: 56px; height: 56px; }
+  .unit.hero .token .face { font-size: 26px; }
+  .unit.enemy .token { width: 76px; height: 76px; }
+  .unit.enemy .token .face { font-size: 34px; inset: 6px; }
+  /* живой отсчёт КД под жетоном */
+  .token .cd-num {
+    position: absolute;
+    left: 50%; bottom: -8px;
+    transform: translateX(-50%);
+    background: var(--ink);
+    color: var(--paper);
+    font-size: 9px; font-weight: 800;
+    border-radius: 999px;
+    padding: 0 6px;
+    white-space: nowrap;
+    z-index: 2;
+  }
+  .unit.hero .token .cd-num,
+  .unit.enemy .token .cd-num { font-size: 10.5px; bottom: -9px; padding: 1px 7px; }
+  /* чаттер сверх капа атакующих: на поле стоит приглушённым, без кольца КД */
+  .unit.inactive { opacity: .45; filter: grayscale(.6); }
+  .unit.inactive .token { background: var(--paper-deep) !important; }
+  .unit.inactive .cd-num { display: none; }
+
+  /* ===================== ПИЛЮЛИ УРОНА / БРОНИ ===================== */
+  .pill {
+    display: inline-flex; align-items: center; gap: 2px;
+    font-size: 12px; font-weight: 900;
+    color: #fff;
+    border: 2px solid var(--ink);
+    border-radius: 7px;
+    padding: 0 6px;
+    white-space: nowrap;
+    box-shadow: 2px 2px 0 var(--ink);
+  }
+  .pill.dmg { background: var(--dust-red); }
+  .pill.arm { background: var(--dust-olive); }
+  .unit.chatter .pill { font-size: 10px; padding: 0 5px;
+                        border-width: 1.5px; border-radius: 5px;
+                        box-shadow: 1.5px 1.5px 0 var(--ink); }
+  .unit.enemy .pill { font-size: 12px; padding: 1px 8px; }
+
+  /* враг по центру своей зоны */
+  #enemy-field {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  #enemy-unit { position: static; transform: none; }
+
+  /* нижняя плашка: призыв вступить в бой, команда — аркадная клавиша */
+  #squad-join {
+    align-self: center;
+    display: inline-flex; align-items: center; gap: .5em;
+    padding: 6px 14px;
+    background: var(--paper);
+    border: var(--bw) solid var(--ink);
+    border-radius: 999px;
+    box-shadow: 4px 4px 0 var(--ink);
+    font-weight: 800; font-size: 13px;
+    transform: rotate(1deg);
+  }
+  .cmd-key {
+    display: inline-flex; align-items: center; justify-content: center;
+    padding: 1px 9px;
+    background: var(--accent);
+    color: var(--ink);
+    border: var(--bw) solid var(--ink);
+    border-radius: 9px;
+    font-size: 13px; font-weight: 900;
+    box-shadow: 2px 3px 0 var(--ink),
+                inset 0 -4px 0 var(--accent-deep),
+                inset 0 2px 0 rgba(255,255,255,.35);
+  }
+
+  /* ===================== АНИМАЦИИ БОЯ ===================== */
+  /* тряска цели при попадании.
+     ВАЖНО: правило .hit объявлено ДО .lunging-* — оба анимируют transform
+     на одном элементе, поэтому при одновременном срабатывании ВЫПАД
+     всегда перебивает тряску (атака приоритетнее получения урона). */
+  @keyframes hitShake {
+    0%, 100% { transform: translateX(0) rotate(0); }
+    20% { transform: translateX(-5px) rotate(-1.5deg); }
+    40% { transform: translateX(4px)  rotate(1.2deg); }
+    60% { transform: translateX(-3px) rotate(-.8deg); }
+    80% { transform: translateX(2px)  rotate(.5deg); }
+  }
+  .hit { animation: hitShake .45s ease-out; }
+  /* выпад в сторону цели: юнит дёргается к противоположной стороне */
+  @keyframes lungeRight {
+    0%   { transform: translateX(0) rotate(0); }
+    30%  { transform: translateX(28px) rotate(4deg) scale(1.12); }
+    55%  { transform: translateX(24px) rotate(3deg) scale(1.08); }
+    100% { transform: translateX(0) rotate(0); }
+  }
+  @keyframes lungeLeft {
+    0%   { transform: translateX(0) rotate(0); }
+    30%  { transform: translateX(-36px) rotate(-4deg) scale(1.1); }
+    55%  { transform: translateX(-32px) rotate(-3deg) scale(1.07); }
+    100% { transform: translateX(0) rotate(0); }
+  }
+  .lunging-r { animation: lungeRight .5s ease-out; }
+  .lunging-l { animation: lungeLeft  .5s ease-out; }
+  /* звёздная вспышка «БАМ!» у цели */
+  .bam {
+    position: absolute;
+    z-index: 5;
+    display: flex; align-items: center; justify-content: center;
+    width: 56px; height: 56px;
+    background: var(--accent);
+    clip-path: polygon(100% 50%, 86.7% 59.8%, 93.3% 75%, 76.9% 76.9%, 75% 93.3%,
+      59.8% 86.7%, 50% 100%, 40.2% 86.7%, 25% 93.3%, 23.1% 76.9%, 6.7% 75%,
+      13.3% 59.8%, 0% 50%, 13.3% 40.2%, 6.7% 25%, 23.1% 23.1%, 25% 6.7%,
+      40.2% 13.3%, 50% 0%, 59.8% 13.3%, 75% 6.7%, 76.9% 23.1%, 93.3% 25%,
+      86.7% 40.2%);
+    filter: drop-shadow(2px 2px 0 var(--ink));
+    font-size: 12px; font-weight: 900;
+    pointer-events: none;
+    animation: bamPop .6s ease-out forwards;
+  }
+  @keyframes bamPop {
+    0%   { transform: scale(.3) rotate(-14deg); opacity: 0; }
+    25%  { transform: scale(1.15) rotate(-6deg); opacity: 1; }
+    70%  { transform: scale(1) rotate(-8deg); opacity: 1; }
+    100% { transform: scale(.9) rotate(-8deg); opacity: 0; }
+  }
+  /* всплывающее число урона */
+  .dmg-float {
+    position: absolute;
+    z-index: 6;
+    font-weight: 900; font-size: 22px;
+    color: var(--dust-red);
+    text-shadow: 1.5px 1.5px 0 var(--ink), -1px -1px 0 var(--ink),
+                 1px -1px 0 var(--ink), -1px 1px 0 var(--ink);
+    pointer-events: none;
+    animation: dmgUp 1s ease-out forwards;
+  }
+  .dmg-float.on-hero { color: var(--dust-blue-d); }
+  .dmg-float.crit { color: var(--accent); font-size: 26px; }
+  .dmg-float.armor-float { color: var(--dust-olive-d); font-size: 13px; }
+  @keyframes dmgUp {
+    0%   { opacity: 0; transform: translateY(6px) scale(.6); }
+    20%  { opacity: 1; transform: translateY(-6px) scale(1.25); }
+    100% { opacity: 0; transform: translateY(-52px) scale(.95); }
+  }
+
+  /* ===================== ПОБЕДА (конец боя) ===================== */
+  #end-overlay {
+    position: absolute; inset: 0;
+    z-index: 20;
+    display: none;
+    align-items: center; justify-content: center;
+    pointer-events: none;
+  }
+  #end-overlay.show { display: flex; }
+  #end-stamp {
+    background: var(--paper);
+    border: 4px solid var(--ink);
+    border-radius: 22px;
+    box-shadow: 7px 7px 0 var(--ink);
+    padding: 12px 28px;
+    text-align: center;
+    font-weight: 900;
+    transform: rotate(-4deg);
+    animation: stampIn .45s cubic-bezier(.2, 1.6, .4, 1);
+    line-height: 1.25;
+  }
+  #end-stamp .giant { font-size: 36px; display: block; }
+  #end-stamp .word { font-size: 26px; letter-spacing: .02em; }
+  #end-stamp .sub  { font-size: 12px; font-weight: 700; color: #4a4a4a; }
+  @keyframes stampIn {
+    0% { transform: rotate(-4deg) scale(2.4); opacity: 0; }
+    100% { transform: rotate(-4deg) scale(1); opacity: 1; }
+  }
+  /* поверженный враг заваливается и бледнеет */
+  #enemy-unit .unit-inner.dead { filter: grayscale(.7); opacity: .65;
+                                 transform: rotate(8deg); transition: all .5s; }
 
   /* ===================== ПРОКАЧКА ===================== */
   .arrow-badge {
@@ -539,6 +888,8 @@
   }
 
   /* ===================== ОТДЫХ / ИТОГ ЗАБЕГА / ОШИБКА ===================== */
+  .num-hl { background: var(--paper-deep); border: 1.5px solid var(--ink);
+            border-radius: 5px; padding: 0 4px; font-weight: 900; }
   .big-note {
     padding: 16px;
     text-align: center;
@@ -597,6 +948,8 @@
           <div class="num">⭐ опыт <span class="val"></span></div></div>
         <div id="gold-chip"><span class="coin">🪙</span><span class="val">0</span>
           <span class="cap">золота</span></div>
+        <div id="deaths-chip"><span class="coin">💀</span><span class="val">0</span>
+          <span class="cap">смертей</span></div>
       </div>
     </div>
 
@@ -610,8 +963,8 @@
     <div id="help-plaque">
       <span class="ic">💬</span>
       <span>Игра идёт сама: если чат молчит, выбирается случайный вариант.
-            Пиши <b>слово</b> варианта в чат, чтобы влиять на выбор —
-            побеждает вариант, набравший больше голосов.</span>
+            Пиши <b>слово</b> варианта в чат, чтобы влиять на выбор.
+            В бою пиши <b>бой</b> — встанешь в отряд рядом с героем.</span>
     </div>
   </div>
 
@@ -627,21 +980,78 @@
       <div id="doors-row"></div>
     </section>
 
-    <!-- ФАЗА: бой -->
+    <!-- ФАЗА: бой (сцена battle-v2: круглые юниты с кольцами КД) -->
     <section id="combat" class="hidden">
-      <div id="mob-card" class="card dots">
-        <span class="ic"></span>
-        <div class="info">
-          <div class="nm"></div>
-          <div class="dmg">урон <b></b></div>
-          <div class="bar" id="mob-hp-bar"><div class="fill"></div>
-            <div class="num"><span class="val"></span></div></div>
+      <!-- СЛЕВА: дружественная зона — ХП героя сверху, поле с юнитами -->
+      <div id="party-zone">
+        <div class="bar hp zone-hp" id="battle-hero-hp">
+          <div class="fill"></div>
+          <span class="who-tag">Герой</span>
+          <div class="num"><span>❤️</span><span class="val"></span></div>
+        </div>
+        <div id="field">
+          <div id="field-inner">
+            <div class="unit hero" id="hero-unit">
+              <div class="unit-inner" id="hero-inner">
+                <div class="mid">
+                  <div class="token-col">
+                    <div class="nick">Герой</div>
+                    <div class="token" id="hero-token">
+                      <div class="side">
+                        <span class="pill dmg" id="hero-dmg"></span>
+                        <span class="pill arm hidden" id="hero-arm"></span>
+                      </div>
+                      <div class="face">🦸</div>
+                      <span class="cd-num" id="hero-cd-num"></span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <!-- чаттеры отряда добавляются сюда JS-ом -->
+          </div>
+        </div>
+        <div id="squad-join">напиши <span class="cmd-key">бой</span>
+          чтобы вступить</div>
+      </div>
+
+      <!-- звёздный значок между сторонами -->
+      <div id="vs-burst">VS</div>
+
+      <!-- СПРАВА: вражеская зона — ХП моба сверху, моб по центру -->
+      <div id="enemy-zone">
+        <div class="bar hp zone-hp" id="battle-mob-hp">
+          <div class="fill"></div>
+          <span class="who-tag" id="mob-tag"></span>
+          <div class="num"><span>❤️</span><span class="val"></span></div>
+        </div>
+        <div id="enemy-field">
+          <div class="unit enemy" id="enemy-unit">
+            <div class="unit-inner" id="enemy-inner">
+              <div class="mid">
+                <div class="token-col">
+                  <div class="nick" id="mob-nick"></div>
+                  <div class="token cd-red" id="enemy-token">
+                    <div class="side">
+                      <span class="pill dmg" id="mob-dmg"></span>
+                    </div>
+                    <div class="face" id="mob-face"></div>
+                    <span class="cd-num" id="enemy-cd-num"></span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
-      <div id="commands"></div>
-      <div id="turn-outcome" class="hidden"></div>
-      <div id="combat-end" class="hidden">
-        <div class="big-note card dots"><span class="giant">🏆</span>Победа!</div>
+
+      <!-- конец боя (подфаза end — только победа; поражение уходит в итоги) -->
+      <div id="end-overlay">
+        <div id="end-stamp">
+          <span class="giant">🏆</span>
+          <span class="word">ПОБЕДА!</span><br>
+          <span class="sub" id="end-sub"></span>
+        </div>
       </div>
     </section>
 
@@ -676,8 +1086,6 @@
         <span class="giant">💀</span>
         <span style="font-size:24px; font-weight:900">Герой погиб!</span>
         <div class="result-chips">
-          <div class="result-chip"><div class="v" id="sum-level">0</div>
-            <div class="c">уровень</div></div>
           <div class="result-chip"><div class="v" id="sum-kills">0</div>
             <div class="c">мобов убито</div></div>
           <div class="result-chip"><div class="v" id="sum-gold">0</div>
@@ -688,8 +1096,9 @@
           <div class="defeated-list" id="sum-defeated"></div>
         </div>
         <div style="margin-top:12px; font-size:14px; font-weight:700">
-          🔄 новый забег начнётся автоматически через
-          <span class="num-hl" id="summary-timer"></span> с</div>
+          🔄 возрождение через
+          <span class="num-hl" id="summary-timer"></span> с —
+          золото и опыт уровня потеряны</div>
       </div>
     </section>
 
@@ -713,7 +1122,7 @@ const sections = ["event", "combat", "shop", "rest", "levelup",
 // структура (магазин без доступных товаров) даёт подпись "", которая
 // не должна совпадать со сбросом.
 let phase = "", statsBuilt = false, gearSig = null, doorsSig = null,
-    mobSig = null, cmdsSig = null, turnSig = null, levelupSig = null,
+    mobSig = null, squadSig = null, levelupSig = null,
     shopSig = null, summarySig = null, errorSig = null;
 // рулетка при ничьей: пока активна, классом .leader владеет анимация;
 // rouletteVotesSig — замороженные голоса/состояния на момент ничьей,
@@ -721,16 +1130,14 @@ let phase = "", statsBuilt = false, gearSig = null, doorsSig = null,
 let rouletteActive = false, resolveSig = null, rouletteToken = 0,
     rouletteVotesSig = null;
 
-const ACCUSATIVE = {"удар в голову": "голову", "тело": "тело", "удар в ноги": "удар в ноги"};
 const STAT_META = {
-  "strength":  {ic: "💪", nm: "Сил", hint: "+урон ближним"},
-  "agility":   {ic: "🤸", nm: "Лов", hint: "+урон дальним"},
+  "strength":  {ic: "💪", nm: "Сил", hint: "+урон оружием"},
+  "agility":   {ic: "🤸", nm: "Лов", hint: "−0.5с КД"},
   "intellect": {ic: "🧠", nm: "Инт", hint: "+5 маны"},
   "endurance": {ic: "🏃", nm: "Вын", hint: "+5 HP"},
   "luck":      {ic: "🍀", nm: "Удч", hint: "+2% крит"},
 };
-const GEAR_CAPTIONS = {"melee": "Ближнее", "ranged": "Дальнее",
-                       "armor": "Броня"};
+const GEAR_CAPTIONS = {"melee": "Ближнее", "armor": "Броня"};
 
 const TITLES = {
   "event": "🚪 Выбери дверь!",
@@ -741,10 +1148,8 @@ const TITLES = {
   "error": "⚠️ Ошибка контента",
 };
 const COMBAT_TITLES = {
-  "attack": "⚔️ Бой: атака!",
-  "defense": "🛡️ Бой: защита!",
-  "outcome": "💥 Итог хода",
-  "end": "🎉 Бой окончен",
+  "fight": "⚔️ Бой!",
+  "end": "🎉 Победа!",
 };
 
 function el(tag, cls, text) {
@@ -769,6 +1174,7 @@ function applyHero(h) {
   setBar($("mana-bar"), h.mana, h.max_mana);
   setBar($("xp-bar"), h.xp, h.xp_to_next);
   $("gold-chip").querySelector(".val").textContent = h.gold;
+  $("deaths-chip").querySelector(".val").textContent = h.deaths;
   $("shop-gold").querySelector(".val").textContent = h.gold;
   if (!statsBuilt) {
     statsBuilt = true;
@@ -787,7 +1193,7 @@ function applyHero(h) {
   const sig = JSON.stringify(h.slots);
   if (sig !== gearSig) {
     gearSig = sig;
-    $("gear-row").replaceChildren(...["melee", "ranged", "armor"].map(slot => {
+    $("gear-row").replaceChildren(...["melee", "armor"].map(slot => {
       const item = h.slots[slot];
       const d = el("div", "slot" + (item ? "" : " empty"));
       const head = el("div", "head");
@@ -803,8 +1209,6 @@ function applyHero(h) {
         if (item.damage) {
           detail.append("урон ");
           detail.append(el("b", null, item.damage));
-          if (item.uses !== undefined)
-            detail.append(" зарядов: " + item.uses);
         } else if (item.armor !== undefined) {
           detail.append("броня ");
           detail.append(el("b", null, item.armor));
@@ -866,7 +1270,6 @@ function updateRows(container, items, base) {
    паузы между вспышками растут, остановка — на выпавшем победителе. */
 function phaseRows() {
   if (phase === "event") return [...$("doors-row").children];
-  if (phase === "combat") return [...$("commands").children];
   if (phase === "shop") return [...$("shop-items").children,
                                 ...$("shop-exit").children];
   if (phase === "levelup") return [...$("levelup-options").children];
@@ -876,7 +1279,6 @@ function phaseRows() {
 /* Голосуемые варианты текущей фазы из снапшота — для подписи рулетки. */
 function voteItems(s) {
   if (phase === "event") return s.event.doors;
-  if (phase === "combat") return s.combat.commands;
   if (phase === "shop") return [...s.shop.items, s.shop.exit];
   if (phase === "levelup") return s.levelup.options;
   return [];
@@ -931,80 +1333,308 @@ function applyEvent(ev) {
   updateRows($("doors-row"), ev.doors, "door-card");
 }
 
-function turnRow(t, mob) {
-  const mobName = mob ? mob.name : "Моб";
-  const mobIcon = mob ? mob.icon : "👹";
-  const row = el("div", "outcome-row" + (t.actor === "mob" ? " mob" : ""));
-  const text = el("span");
-  if (!t.direction) {          // ход пропущен (нет голосов на атаке)
-    row.append(el("span", "ic", "💤"), el("span", "who", "Герой"));
-    text.textContent = "пропускает ход — никто не голосовал.";
-  } else {
-    const where = ACCUSATIVE[t.direction_name] || t.direction_name;
-    const after = t.target_hp, before = after + t.damage;
-    if (t.actor === "hero") {
-      row.append(el("span", "ic", "⚔️"), el("span", "who", "Герой"));
-      text.append(`бьёт (${t.weapon_label}) в ${where} — `);
-      if (t.blocked) {
-        text.append(el("span", "stamp block", "БЛОК"));
-      } else {
-        if (t.crit) text.append(el("span", "stamp", "КРИТ ×2!"), " ");
-        text.append("урон ", el("span", "num-hl", t.damage),
-                    ` · ${mobName}: HP ${before} → `,
-                    el("span", "num-hl", after));
-      }
-    } else {
-      row.append(el("span", "ic", mobIcon), el("span", "who", mobName));
-      text.append(`атакует в ${where} — `);
-      if (t.blocked) {
-        text.append(el("span", "stamp block", "БЛОК"));
-      } else {
-        text.append("урон ", el("span", "num-hl", t.damage));
-        if (t.armor > 0) text.append(` (броня −${t.armor})`);
-        text.append(` · Герой: HP ${before} → `,
-                    el("span", "num-hl", after));
-      }
-    }
-  }
-  row.append(text);
-  return row;
+/* ===================== СЦЕНА БОЯ (battle-v2) =====================
+   Данные — снапшот combat{subphase, mob, hero_cd, squad, events}.
+   Юниты чаттеров ключуются ником (squadUnits) — слоты не прыгают между
+   поллингами. Кольца КД и отсчёт: ресинк из снапшота, между поллингами —
+   плавный локальный отсчёт на rAF. Атаки проигрываются по очереди событий
+   (seq > lastEventSeq) с небольшим стаггером. */
+const BAM_WORDS = ["БАМ!", "ХРЯСЬ!", "БУМ!", "ТРЕСК!", "ПАНЧ!", "ШМЯК!"];
+const EVENT_STAGGER_MS = 190;
+/* расхождение локального отсчёта КД со снапшотом, после которого делаем
+   жёсткий ресинк (пропущенные события, переподключение страницы) */
+const CD_RESYNC_SEC = 1.2;
+
+/* Раскладка поля (в НЕмасштабированных пикселях): «кирпичная» сетка слотов
+   с джиттером; герой — в центральном слоте, чаттеры — от ближних к нему
+   к дальним; нижние ряды всегда ВЫШЕ по z-index; рост отряда — zoom-out.
+   Константы — макет 500×440, пропорционально ужатый под 276×245. */
+const FIELD_W = 276, FIELD_H = 245;
+const COL_W = 76;    /* горизонтальный шаг между слотами в ряду */
+const ROW_H = 50;    /* вертикальный шаг между рядами персонажей */
+const ROW_SHIFT = 38; /* сдвиг чётных/нечётных рядов («кирпичная кладка») */
+const UNIT_RX = 42, UNIT_RY = 36; /* полу-габариты юнита для расчёта масштаба */
+
+const squadUnits = new Map();  // nick -> {el, inner, token, cdNum, cd}
+const heroCd = {left: 0, max: 1, ts: 0};
+const mobCd = {left: 0, max: 1, ts: 0};
+let lastEventSeq = 0, eventPlaying = false;
+const eventQueue = [];
+
+const rnd = (a, b) => a + Math.floor(Math.random() * (b - a + 1));
+
+/* детерминированный джиттер, чтобы ряды не выглядели казармой */
+function slotJitter(i) {
+  const s = Math.sin(i * 127.1) * 43758.5453;
+  const t = Math.sin(i * 311.7) * 24634.6345;
+  return { jx: (s - Math.floor(s) - .5) * 22,
+           jy: (t - Math.floor(t) - .5) * 14 };
 }
 
-function applyCombat(c) {
+/* слоты для nUnits юнитов: сетка центрирована, число колонок подобрано
+   под максимальный масштаб (слоты растут влево/вправо и вверх/вниз) */
+function computeSlots(nUnits) {
+  let best = null;
+  for (let cols = 3; cols <= 12; cols++) {
+    const rows = Math.ceil(nUnits / cols);
+    const spanX = (cols - 1) * COL_W + ROW_SHIFT + 2 * UNIT_RX;
+    const spanY = (rows - 1) * ROW_H + 2 * UNIT_RY;
+    const scale = Math.min(1, FIELD_W / spanX, FIELD_H / spanY);
+    if (!best || scale > best.scale) best = { cols, rows, scale };
+  }
+  const { cols, rows } = best;
+  const y0 = FIELD_H / 2 - (rows - 1) * ROW_H / 2;
+  const slots = [];
+  for (let r = 0; r < rows; r++) {
+    /* чётные ряды сдвинуты влево, нечётные — вправо на половину ROW_SHIFT */
+    const rowShift = (r % 2 ? 1 : -1) * ROW_SHIFT / 2;
+    const x0 = FIELD_W / 2 - (cols - 1) * COL_W / 2 + rowShift;
+    for (let c = 0; c < cols; c++) {
+      const j = slotJitter(r * 37 + c);
+      slots.push({ x: x0 + c * COL_W + j.jx, y: y0 + r * ROW_H + j.jy, row: r });
+    }
+  }
+  return slots;
+}
+
+function renderSquad() {
+  const heroEl = $("hero-unit");
+  const chatters = [...squadUnits.values()];  // Map — порядок вступления
+  const slots = computeSlots(chatters.length + 1);
+  /* герой — в слоте, ближайшем к центру поля */
+  let hi = 0, best = Infinity;
+  slots.forEach((s, i) => {
+    const d = (s.x - FIELD_W / 2) ** 2 + (s.y - FIELD_H / 2) ** 2;
+    if (d < best) { best = d; hi = i; }
+  });
+  const heroSlot = slots[hi];
+  /* чаттеры — в остальные слоты от ближних к герою к дальним */
+  const rest = slots.filter((_, i) => i !== hi)
+    .sort((a, b) => ((a.x - heroSlot.x) ** 2 + (a.y - heroSlot.y) ** 2)
+                  - ((b.x - heroSlot.x) ** 2 + (b.y - heroSlot.y) ** 2));
+
+  heroEl.style.left = heroSlot.x + "px";
+  heroEl.style.top  = heroSlot.y + "px";
+  heroEl.style.zIndex = 10 + heroSlot.row;
+  chatters.forEach((c, i) => {
+    c.el.style.left = rest[i].x + "px";
+    c.el.style.top  = rest[i].y + "px";
+    c.el.style.zIndex = 10 + rest[i].row;   /* нижние ряды — поверх верхних */
+  });
+
+  /* «масштаб отдаляется»: вписываем занятые слоты в поле */
+  const used = [heroSlot, ...rest.slice(0, chatters.length)];
+  const spanX = Math.max(...used.map(s => s.x)) - Math.min(...used.map(s => s.x)) + 2 * UNIT_RX;
+  const spanY = Math.max(...used.map(s => s.y)) - Math.min(...used.map(s => s.y)) + 2 * UNIT_RY;
+  const scale = Math.min(1, FIELD_W / spanX, FIELD_H / spanY);
+  $("field-inner").style.transform = `scale(${scale.toFixed(3)})`;
+}
+
+/* МЯГКИЙ ресинк отсчёта КД. Сервер экстраполирует cd_left к моменту
+   отдачи /state.json (fresh_snapshot), так что значение всегда свежее —
+   но дёргать локальный отсчёт на каждый поллинг не нужно: снапаемся
+   только при заметном расхождении (реальная рассинхронизация) или смене
+   кулдауна. Сброс кольца в полный КД — на событии атаки юнита
+   (playCombatEvent), чтобы кольцо заполнялось ровно под удар. */
+function cdLocal(store) {
+  return Math.max(0, store.left - (performance.now() - store.ts) / 1000);
+}
+
+function syncCd(store, left, max) {
+  const m = max > 0 ? max : 1;
+  if (m !== store.max || Math.abs(cdLocal(store) - left) > CD_RESYNC_SEC) {
+    store.left = left;
+    store.ts = performance.now();
+  }
+  store.max = m;
+}
+
+/* кольцо КД: доля заполнения 0..1 → conic-gradient + живой отсчёт */
+function drawCd(tokenEl, numEl, cd, color) {
+  const left = cdLocal(cd);
+  const frac = 1 - left / cd.max;
+  const deg = Math.round(frac * 360);
+  tokenEl.style.background =
+    `conic-gradient(${color} ${deg}deg, var(--paper-deep) ${deg}deg)`;
+  const txt = left.toFixed(1) + " с";
+  if (numEl.textContent !== txt) numEl.textContent = txt;  // не дёргать DOM
+}
+
+function makeChatterUnit(u) {
+  const d = el("div", "unit chatter");
+  d.innerHTML = `
+    <div class="unit-inner">
+      <div class="mid">
+        <div class="token-col">
+          <div class="nick"></div>
+          <div class="token cd-blue">
+            <div class="side"><span class="pill dmg"></span></div>
+            <div class="face"></div>
+            <span class="cd-num"></span>
+          </div>
+        </div>
+      </div>
+    </div>`;
+  /* ник/эмодзи — текстом (реальные ники из чата, не HTML) */
+  d.querySelector(".nick").textContent = u.nick;
+  d.querySelector(".face").textContent = u.emoji;
+  d.querySelector(".pill.dmg").textContent = "🗡️ " + u.damage;
+  return { el: d, inner: d.querySelector(".unit-inner"),
+           token: d.querySelector(".token"),
+           cdNum: d.querySelector(".cd-num"),
+           cd: {left: u.cd_left, max: u.cooldown, ts: performance.now()} };
+}
+
+/* сверка состава отряда со снапшотом: новые — добавить, ушедшие — убрать;
+   перестройка раскладки только при смене состава (структурная подпись) */
+function reconcileSquad(squad) {
+  const seen = new Set();
+  for (const u of squad) {
+    seen.add(u.nick);
+    let rec = squadUnits.get(u.nick);
+    if (!rec) {
+      rec = makeChatterUnit(u);
+      squadUnits.set(u.nick, rec);
+      $("field-inner").appendChild(rec.el);
+    }
+    syncCd(rec.cd, u.cd_left, u.cooldown);
+    rec.el.classList.toggle("inactive", !u.active);  // сверх капа: приглушён
+  }
+  for (const [nick, rec] of squadUnits) {
+    if (!seen.has(nick)) { rec.el.remove(); squadUnits.delete(nick); }
+  }
+  const sig = squad.map(u => u.nick).join("|");
+  if (sig !== squadSig) { squadSig = sig; renderSquad(); }
+}
+
+/* новый бой: моб, пилюли героя, сброс сцены и очереди событий */
+function resetBattleScene(s) {
+  const mob = s.combat.mob;
+  $("mob-face").textContent = mob.icon;
+  $("mob-nick").textContent = mob.name;
+  $("mob-tag").textContent = mob.name;
+  $("mob-dmg").textContent = "🗡️ " + mob.damage;
+  const melee = s.hero && s.hero.slots.melee;
+  $("hero-dmg").textContent = "🗡️ " + (melee ? melee.damage : "–");
+  const armor = s.hero && s.hero.slots.armor;
+  $("hero-arm").textContent = armor ? "🛡️ " + armor.armor : "";
+  $("hero-arm").classList.toggle("hidden", !(armor && armor.armor > 0));
+  for (const rec of squadUnits.values()) rec.el.remove();
+  squadUnits.clear();
+  squadSig = null;
+  lastEventSeq = 0;
+  eventQueue.length = 0;
+  $("enemy-inner").classList.remove("dead");
+  $("end-overlay").classList.remove("show");
+  renderSquad();
+}
+
+/* звёздная вспышка + всплывающий урон у цели + тряска */
+function spawnHitFx(targetInner, e) {
+  const onHero = e.target === "hero";
+  const bam = el("div", "bam",
+                 BAM_WORDS[rnd(0, BAM_WORDS.length - 1)]);
+  bam.style.left = (targetInner.clientWidth / 2 - 28 + rnd(-20, 20)) + "px";
+  bam.style.top  = (targetInner.clientHeight / 2 - 28 + rnd(-14, 14)) + "px";
+  targetInner.appendChild(bam);
+  setTimeout(() => bam.remove(), 650);
+
+  const fl = el("div",
+      "dmg-float" + (onHero ? " on-hero" : "") + (e.crit ? " crit" : ""),
+      (e.crit ? "КРИТ " : "") + "−" + e.damage);
+  fl.style.left = (targetInner.clientWidth / 2 + rnd(-26, 14)) + "px";
+  fl.style.top  = rnd(0, 12) + "px";
+  targetInner.appendChild(fl);
+  setTimeout(() => fl.remove(), 1000);
+
+  if (e.armor_absorbed > 0) {
+    const af = el("div", "dmg-float armor-float", "броня −" + e.armor_absorbed);
+    af.style.left = (targetInner.clientWidth / 2 + rnd(-26, 14)) + "px";
+    af.style.top  = (18 + rnd(0, 10)) + "px";
+    targetInner.appendChild(af);
+    setTimeout(() => af.remove(), 1000);
+  }
+
+  targetInner.classList.remove("hit");
+  void targetInner.offsetWidth;
+  targetInner.classList.add("hit");
+}
+
+function playCombatEvent(e) {
+  if (phase !== "combat") return;
+  /* атакующий: герой/чаттеры выпадают вправо, моб — влево;
+     его кольцо КД заполняется заново в момент удара */
+  let atk = null, lunge = "lunging-r", cd = null;
+  if (e.attacker === "hero") { atk = $("hero-inner"); cd = heroCd; }
+  else if (e.attacker === "mob") { atk = $("enemy-inner"); lunge = "lunging-l"; cd = mobCd; }
+  else {
+    const rec = squadUnits.get(e.attacker);
+    atk = rec ? rec.inner : null;
+    cd = rec ? rec.cd : null;
+  }
+  if (cd) { cd.left = cd.max; cd.ts = performance.now(); }
+  if (atk) {
+    atk.classList.remove("lunging-r", "lunging-l");
+    void atk.offsetWidth;
+    atk.classList.add(lunge);
+    /* класс выпада ОБЯЗАТЕЛЬНО снимаем по концу анимации (.5s): пока он
+       висит, CSS-приоритет подавляет тряску от следующих попаданий */
+    setTimeout(() => atk.classList.remove("lunging-r", "lunging-l"), 500);
+  }
+  spawnHitFx(e.target === "mob" ? $("enemy-inner") : $("hero-inner"), e);
+}
+
+/* новые события боя (seq > lastEventSeq) — в очередь, проигрываются
+   по порядку с небольшим стаггером */
+function playEvents(events) {
+  for (const e of events) {
+    if (e.seq <= lastEventSeq) continue;
+    lastEventSeq = e.seq;
+    eventQueue.push(e);
+  }
+  pumpEvents();
+}
+
+function pumpEvents() {
+  if (eventPlaying || !eventQueue.length) return;
+  eventPlaying = true;
+  playCombatEvent(eventQueue.shift());
+  setTimeout(() => { eventPlaying = false; pumpEvents(); }, EVENT_STAGGER_MS);
+}
+
+function applyCombat(s) {
+  const c = s.combat;
   if (c.mob) {
-    const sig = c.mob.icon + c.mob.name + c.mob.max_hp + c.mob.damage;
-    if (sig !== mobSig) {
-      mobSig = sig;
-      $("mob-card").querySelector(".ic").textContent = c.mob.icon;
-      $("mob-card").querySelector(".nm").textContent = c.mob.name;
-      $("mob-card").querySelector(".dmg b").textContent = c.mob.damage;
-    }
-    setBar($("mob-hp-bar"), c.mob.hp, c.mob.max_hp);
+    const sig = c.mob.icon + c.mob.name + c.mob.max_hp + c.mob.damage +
+                c.mob.cooldown;
+    if (sig !== mobSig) { mobSig = sig; resetBattleScene(s); }
+    setBar($("battle-mob-hp"), c.mob.hp, c.mob.max_hp);
+    syncCd(mobCd, c.mob.cd_left, c.mob.cooldown);
   }
-  const sub = c.subphase;
-  $("commands").classList.toggle("hidden",
-      !(sub === "attack" || sub === "defense"));
-  $("turn-outcome").classList.toggle("hidden", sub !== "outcome");
-  $("combat-end").classList.toggle("hidden", sub !== "end");
-  if (sub === "attack" || sub === "defense") {
-    const sig = c.commands.map(
-        o => o.n + o.word + (o.icon || "") + o.label + (o.detail || "")).join("");
-    if (sig !== cmdsSig) {
-      cmdsSig = sig;
-      $("commands").replaceChildren(...c.commands.map(o => {
-        if (!o.detail) o = Object.assign({icon: "🛡️"}, o);  // защита
-        return optionRow(o);
-      }));
-    }
-    updateRows($("commands"), c.commands, "opt");
+  if (s.hero) setBar($("battle-hero-hp"), s.hero.hp, s.hero.max_hp);
+  if (c.hero_cd) syncCd(heroCd, c.hero_cd.cd_left, c.hero_cd.cooldown);
+  reconcileSquad(c.squad || []);
+  playEvents(c.events || []);
+  const over = c.subphase === "end";
+  $("end-overlay").classList.toggle("show", over);
+  $("enemy-inner").classList.toggle("dead", over);
+  $("squad-join").classList.toggle("hidden", over);
+  if (over) {
+    $("end-sub").textContent = `${c.mob ? c.mob.name : "Моб"} повержен · ` +
+        `новое приключение через ${s.time_left} с`;
   }
-  if (sub === "outcome" && c.turn) {
-    const sig = JSON.stringify(c.turn);
-    if (sig !== turnSig) {
-      turnSig = sig;
-      $("turn-outcome").replaceChildren(turnRow(c.turn, c.mob));
-    }
+}
+
+/* локальный плавный отсчёт колец КД между поллингами (ресинк — в syncCd) */
+function battleFrame() {
+  if (phase === "combat") {
+    drawCd($("hero-token"), $("hero-cd-num"), heroCd, "var(--accent)");
+    drawCd($("enemy-token"), $("enemy-cd-num"), mobCd, "var(--dust-red)");
+    for (const rec of squadUnits.values())
+      if (!rec.el.classList.contains("inactive"))
+        drawCd(rec.token, rec.cdNum, rec.cd, "var(--dust-blue)");
   }
+  requestAnimationFrame(battleFrame);
 }
 
 function applyLevelup(l) {
@@ -1043,7 +1673,6 @@ function applyGameOver(g) {
   const sig = JSON.stringify(g);
   if (sig !== summarySig) {
     summarySig = sig;
-    $("sum-level").textContent = g.level;
     $("sum-kills").textContent = g.kills;
     $("sum-gold").textContent = g.gold_earned;
     const box = $("sum-defeated-box"), list = $("sum-defeated");
@@ -1065,10 +1694,13 @@ function apply(s) {
     phase = s.phase;
     for (const name of sections)
       $(name).classList.toggle("hidden", name !== phase);
-    doorsSig = mobSig = cmdsSig = turnSig = levelupSig = shopSig =
+    doorsSig = mobSig = squadSig = levelupSig = shopSig =
         summarySig = errorSig = null;
     rouletteActive = false; resolveSig = null; rouletteToken++;
     rouletteVotesSig = null;
+    /* сцена боя сбрасывается через mobSig в applyCombat (resetBattleScene),
+       здесь — только очередь непроигранных событий прошлой фазы */
+    eventQueue.length = 0;
   }
   const title = phase === "combat"
       ? (COMBAT_TITLES[s.combat.subphase] || "⚔️ Бой")
@@ -1097,7 +1729,7 @@ function apply(s) {
     }
   }
   if (phase === "event") applyEvent(s.event);
-  else if (phase === "combat") applyCombat(s.combat);
+  else if (phase === "combat") applyCombat(s);
   else if (phase === "shop") applyShop(s.shop);
   else if (phase === "levelup") applyLevelup(s.levelup);
   else if (phase === "rest") {
@@ -1124,6 +1756,7 @@ function poll() {
 }
 poll();
 setInterval(poll, 200);
+requestAnimationFrame(battleFrame);  // плавные кольца КД между поллингами
 </script>
 </body>
 </html>

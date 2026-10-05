@@ -1,4 +1,5 @@
-"""Tests for the hero model: formulas, equipment, XP/levels, ranged uses."""
+"""Tests for the hero model: formulas, equipment, XP/levels, melee damage
+range, auto-battle strike (crit), armor and attack cooldown."""
 
 from __future__ import annotations
 
@@ -12,7 +13,7 @@ SEED = 20260930
 
 def item(slot: str, **kwargs) -> Item:
     fields = dict(name="Тест", icon="", slot=slot, damage_min=None,
-                  damage_max=None, uses=None, armor=None, price=0)
+                  damage_max=None, armor=None, price=0)
     fields.update(kwargs)
     return Item(**fields)
 
@@ -28,8 +29,18 @@ class NewHeroTests(unittest.TestCase):
         self.assertEqual((hero.mana, hero.max_mana), (0, 0))
         self.assertEqual(hero.melee.name, "Кулаки")
         self.assertEqual((hero.melee.damage_min, hero.melee.damage_max), (1, 2))
-        self.assertIsNone(hero.ranged)
         self.assertIsNone(hero.armor)
+
+    def test_custom_starter_equips_copy(self):
+        paws = item("melee", name="Лапы", damage_min=3, damage_max=5)
+        plate = item("armor", name="Панцирь", armor=1)
+        hero = new_hero(20, [paws, plate])
+        self.assertEqual(hero.melee.name, "Лапы")
+        self.assertIsNot(hero.melee, paws)  # копия — пул не шарится
+        self.assertEqual(hero.damage_range(), (3, 5))
+        self.assertEqual(hero.armor.name, "Панцирь")
+        self.assertIsNot(hero.armor, plate)
+        self.assertEqual(hero.armor_value, 1)
 
 
 class FormulaTests(unittest.TestCase):
@@ -48,40 +59,73 @@ class FormulaTests(unittest.TestCase):
         hero.luck = 5
         self.assertAlmostEqual(hero.crit_chance, 0.10)
 
+    def test_attack_cooldown_reduced_by_agility(self):
+        hero = new_hero(20)
+        hero.agility = 5
+        self.assertAlmostEqual(hero.attack_cooldown(5.0, 0.5, 1.0), 2.5)
+
+    def test_attack_cooldown_floored(self):
+        hero = new_hero(20)
+        hero.agility = 100
+        self.assertEqual(hero.attack_cooldown(5.0, 0.5, 1.0), 1.0)
+
+
+class DamageRangeTests(unittest.TestCase):
     def test_melee_damage_adds_strength(self):
+        hero = new_hero(20)
+        hero.equip(item("melee", damage_min=2, damage_max=4))
+        hero.strength = 3
+        self.assertEqual(hero.damage_range(), (5, 7))
+
+    def test_fists_range(self):
+        self.assertEqual(new_hero(20).damage_range(), (1, 2))
+
+    def test_empty_slot_raises(self):
+        hero = Hero(base_hp=20)  # без стартового набора слот melee пуст
+        with self.assertRaises(ValueError):
+            hero.damage_range()
+
+
+class ArmorTests(unittest.TestCase):
+    def test_no_armor_is_zero(self):
+        self.assertEqual(new_hero(20).armor_value, 0)
+
+    def test_armor_value_from_item(self):
+        hero = new_hero(20)
+        hero.equip(item("armor", armor=3))
+        self.assertEqual(hero.armor_value, 3)
+
+
+class StrikeTests(unittest.TestCase):
+    def test_damage_within_range(self):
+        hero = new_hero(20)
+        hero.equip(item("melee", damage_min=2, damage_max=6))
+        rng = random.Random(SEED)
+        for _ in range(20):
+            damage, crit = hero.strike(rng)
+            self.assertGreaterEqual(damage, 2)
+            self.assertLessEqual(damage, 6)
+            self.assertFalse(crit)
+
+    def test_degenerate_range_exact(self):
         hero = new_hero(20)
         hero.equip(item("melee", damage_min=2, damage_max=2))
         hero.strength = 3
-        damage, crit = hero.roll_damage("melee", random.Random(SEED))
+        damage, crit = hero.strike(random.Random(SEED))
         self.assertEqual((damage, crit), (5, False))
-
-    def test_ranged_damage_adds_agility(self):
-        hero = new_hero(20)
-        hero.equip(item("ranged", damage_min=4, damage_max=4, uses=3))
-        hero.agility = 2
-        damage, crit = hero.roll_damage("ranged", random.Random(SEED))
-        self.assertEqual((damage, crit), (6, False))
-
-    def test_roll_within_weapon_range(self):
-        hero = new_hero(20)  # кулаки 1–2, без статов
-        rng = random.Random(SEED)
-        rolls = {hero.roll_damage("melee", rng)[0] for _ in range(50)}
-        self.assertEqual(rolls, {1, 2})
 
     def test_crit_doubles_total_damage(self):
         hero = new_hero(20)
         hero.equip(item("melee", damage_min=2, damage_max=2))
         hero.strength = 3
         hero.luck = 100  # шанс 200% — крит гарантирован
-        damage, crit = hero.roll_damage("melee", random.Random(SEED))
+        damage, crit = hero.strike(random.Random(SEED))
         self.assertEqual((damage, crit), (10, True))
 
-    def test_roll_damage_empty_slot_raises(self):
-        hero = new_hero(20)
+    def test_empty_slot_raises(self):
+        hero = Hero(base_hp=20)
         with self.assertRaises(ValueError):
-            hero.roll_damage("ranged", random.Random(SEED))
-        with self.assertRaises(ValueError):
-            hero.roll_damage("armor", random.Random(SEED))
+            hero.strike(random.Random(SEED))
 
 
 class EquipTests(unittest.TestCase):
@@ -92,15 +136,11 @@ class EquipTests(unittest.TestCase):
         self.assertEqual(hero.melee.name, "Меч")
         self.assertIsNot(hero.melee, old)
 
-    def test_equip_fills_empty_slots(self):
+    def test_equip_fills_armor_slot(self):
         hero = new_hero(20)
-        hero.equip(item("ranged", damage_min=3, damage_max=7, uses=5))
-        hero.equip(item("armor", armor=2))
-        self.assertEqual(hero.ranged.uses, 5)
+        hero.equip(item("armor", name="Кольчуга", armor=2))
+        self.assertEqual(hero.armor.name, "Кольчуга")
         self.assertEqual(hero.armor_value, 2)
-
-    def test_armor_value_without_armor_is_zero(self):
-        self.assertEqual(new_hero(20).armor_value, 0)
 
     def test_equip_bad_slot_raises(self):
         hero = new_hero(20)
@@ -148,25 +188,6 @@ class LevelUpTests(unittest.TestCase):
         hero = new_hero(20)
         with self.assertRaises(ValueError):
             hero.level_up("charisma")
-
-
-class RangedUseTests(unittest.TestCase):
-    def test_use_ranged_spends_use(self):
-        hero = new_hero(20)
-        hero.equip(item("ranged", damage_min=3, damage_max=7, uses=2))
-        hero.use_ranged()
-        self.assertEqual(hero.ranged.uses, 1)
-
-    def test_weapon_breaks_at_zero_uses(self):
-        hero = new_hero(20)
-        hero.equip(item("ranged", damage_min=3, damage_max=7, uses=1))
-        hero.use_ranged()
-        self.assertIsNone(hero.ranged)
-
-    def test_use_ranged_without_weapon_raises(self):
-        hero = new_hero(20)
-        with self.assertRaises(ValueError):
-            hero.use_ranged()
 
 
 if __name__ == "__main__":

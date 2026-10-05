@@ -1,6 +1,6 @@
 name = "Ржавый меч"
 icon = "🗡️"
 slot = "melee"
-damage_min = 2
+damage_min = 1
 damage_max = 4
 price = 8

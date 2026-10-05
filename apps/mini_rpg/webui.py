@@ -1,17 +1,19 @@
 """Overlay state model for the web UI (OBS Browser Source).
 
 Implements the NullUI listener interface from game.py: the Game calls
-show_event / show_combat / show_combat_outcome / show_shop / show_rest /
+show_event / show_combat / show_combat_events / show_shop / show_rest /
 show_levelup / show_gameover / show_error / update_votes / update_timer,
 and WebUI folds each call into a plain JSON-serializable dict. The current
 dict is published by an atomic reference swap (`_snapshot`), so the HTTP
 handler threads in `server.py` (этап 7) can read it without locks.
 
 WebUI keeps a reference to the Game and re-reads the volatile parts
-(hero panel, phase timer, combat sub-phase, mob HP) at publish time.
-The timer ticks every frame: Game.update() pushes it via update_timer(),
-which republishes only when the displayed second changes — same pattern
-as the story's set_header.
+(hero panel, phase timer, combat sub-phase, mob HP, cooldowns) at publish
+time. The timer ticks every frame: Game.update() pushes it via
+update_timer(), which republishes only when the displayed second changes —
+same pattern as the story's set_header. In the FIGHT sub-phase there is no
+phase timer (time_left is frozen at 0): publishes come from combat events
+and squad joins.
 
 Phases: event | combat | shop | rest | levelup | game_over | error
 (mirrors game.py).
@@ -20,10 +22,10 @@ Phases: event | combat | shop | rest | levelup | game_over | error
 from __future__ import annotations
 
 import copy
+import time
 from typing import Any
 
-from apps.mini_rpg.core import (DAMAGE_STAT, DIRECTIONS, STATS, WEAPON_SLOTS,
-                                defense_choice)
+from apps.mini_rpg.core import STATS
 
 PHASE_EVENT = "event"
 PHASE_COMBAT = "combat"
@@ -34,11 +36,14 @@ PHASE_GAME_OVER = "game_over"
 PHASE_ERROR = "error"
 
 # combat sub-phases (mirror game.py)
-ATTACK, DEFENSE, OUTCOME, COMBAT_END = "attack", "defense", "outcome", "end"
+FIGHT, COMBAT_END = "fight", "end"
 
 OPT_IDLE = "idle"
 OPT_ACTIVE = "active"
 OPT_LEADER = "leader"
+
+# сколько последних боевых событий хранится в снапшоте
+MAX_COMBAT_EVENTS = 50
 
 STAT_NAMES = {
     "strength": "Сила",
@@ -48,21 +53,14 @@ STAT_NAMES = {
     "luck": "Удача",
 }
 STAT_HINTS = {
-    "strength": "+1 к урону ближним оружием",
-    "agility": "+1 к урону дальним оружием",
+    "strength": "+1 к урону оружием",
+    "agility": "−0.5 с к кулдауну атаки",
     "intellect": "+5 к макс. мане",
     "endurance": "+5 к макс. HP (текущее HP тоже +5)",
     "luck": "+2% к шансу крита (крит ×2)",
 }
-STAT_GEN = {"strength": "силы", "agility": "ловк."}
-DIRECTION_NAMES = {"head": "удар в голову", "body": "удар в тело",
-                   "legs": "удар в ноги"}
-DIRECTION_ACC = {"head": "голову", "body": "тело", "legs": "ноги"}
-WEAPON_NAMES = {"melee": "ближнее", "ranged": "дальнее"}
-SLOT_NAMES = {"melee": "Ближнее оружие", "ranged": "Дальнее оружие",
-              "armor": "Броня"}
-SHORT_SLOT_NAMES = {"melee": "ближнее", "ranged": "дальнее",
-                    "armor": "броня"}
+SLOT_NAMES = {"melee": "Ближнее оружие", "armor": "Броня"}
+SHORT_SLOT_NAMES = {"melee": "ближнее", "armor": "броня"}
 
 
 def _option(n: int, label: str, word: str | None = None) -> dict[str, Any]:
@@ -70,62 +68,22 @@ def _option(n: int, label: str, word: str | None = None) -> dict[str, Any]:
             "state": OPT_IDLE}
 
 
-def _attack_commands(hero, words: dict[str, str]) -> list[dict[str, Any]]:
-    """Команды 1–6: 1–3 ближнее, 4–6 дальнее (если есть) — нумерация
-    совпадает с attack_choice из core.choices. У каждой готовые label
-    («Короткий лук в голову»), detail (урон + бонус статы, заряды) и
-    слово-алиас раунда (по нему голосуют в чате)."""
-    commands = []
-    n = 0
-    for slot in WEAPON_SLOTS:
-        weapon = getattr(hero, slot) if hero is not None else None
-        if weapon is None:
-            continue
-        stat = getattr(hero, DAMAGE_STAT[slot])
-        for direction in DIRECTIONS:
-            n += 1
-            detail = (f"урон {weapon.damage_min}–{weapon.damage_max} "
-                      f"+{stat} {STAT_GEN[DAMAGE_STAT[slot]]}")
-            if slot == "ranged":
-                detail += f" · зарядов: {weapon.uses}"
-            commands.append({"n": n, "word": words.get(str(n)),
-                             "icon": weapon.icon,
-                             "label": f"{weapon.name} "
-                                      f"в {DIRECTION_ACC[direction]}",
-                             "detail": detail, "votes": 0,
-                             "state": OPT_IDLE})
-    return commands
-
-
-def _defense_commands(words: dict[str, str]) -> list[dict[str, Any]]:
-    return [_option(n, f"Защитить {DIRECTION_ACC[defense_choice(str(n))]}",
-                    words.get(str(n)))
-            for n in (1, 2, 3)]
-
-
 def _slot_view(item, slot: str) -> dict[str, Any] | None:
     if item is None:
         return None
     view = {"slot": slot, "slot_name": SLOT_NAMES[slot],
             "icon": item.icon, "name": item.name}
-    if slot in WEAPON_SLOTS:
+    if slot == "melee":
         view["damage"] = f"{item.damage_min}–{item.damage_max}"
-    if slot == "ranged":
-        view["uses"] = item.uses
     if slot == "armor":
         view["armor"] = item.armor
     return view
 
 
 def _item_detail(item) -> str:
-    parts = []
-    if item.slot in WEAPON_SLOTS:
-        parts.append(f"урон {item.damage_min}–{item.damage_max}")
-    if item.slot == "ranged":
-        parts.append(f"зарядов: {item.uses}")
-    if item.slot == "armor":
-        parts.append(f"−{item.armor} урона")
-    return ", ".join(parts)
+    if item.slot == "melee":
+        return f"урон {item.damage_min}–{item.damage_max}"
+    return f"броня {item.armor}"
 
 
 class WebUI:
@@ -134,20 +92,20 @@ class WebUI:
         self._state: dict[str, Any] = {
             "phase": PHASE_EVENT,
             "event": {"doors": []},
-            "combat": {"subphase": "", "mob": None, "commands": [],
-                       "turn": None},
+            "combat": {"subphase": "", "mob": None, "hero_cd": None,
+                       "squad": [], "events": []},
             "shop": {"items": [], "exit": _option(0, "Выйти")},
             "rest": {},
             "levelup": {"options": []},
-            "game_over": {"level": 0, "kills": 0, "gold_earned": 0,
-                          "defeated": []},
+            "game_over": {"kills": 0, "gold_earned": 0, "defeated": []},
             "error": {"message": ""},
             # ничья: рулетка среди лидеров (None вне тай-брейка)
             "resolve": None,
         }
-        self._combat = None  # последний показанный Combat (сброс turn на новом)
+        self._combat = None  # последний показанный Combat (сброс на новом)
         self._published_seconds: int | None = None
         self._published_overtime: bool | None = None
+        self._published_at = 0.0  # monotonic момент последней публикации
         self._snapshot: dict[str, Any] = {}
         self.refresh()  # Game уже мог войти в первую фазу до подключения UI
 
@@ -160,6 +118,37 @@ class WebUI:
         """Last published state; safe to read from other threads."""
         return self._snapshot
 
+    def fresh_snapshot(self) -> dict[str, Any]:
+        """Snapshot for serving over HTTP: combat cooldowns extrapolated
+        to NOW. Publishes in a fight are event-driven (no phase timer), so
+        raw cd_left in the last published snapshot goes stale between
+        events; a client resyncing against it saw the countdown jump back.
+        Cooldowns tick in real time, so subtracting the publish age is
+        exact (clamped at 0; a finished combat freezes server-side anyway).
+        The stored snapshot is not mutated — copies are made on the path."""
+        snap = self._snapshot
+        combat = snap.get("combat")
+        if snap.get("phase") != PHASE_COMBAT or not combat:
+            return snap
+        age = time.monotonic() - self._published_at
+        if age <= 0:
+            return snap
+        snap = dict(snap)
+        combat = dict(combat)
+        snap["combat"] = combat
+        if combat.get("mob") is not None:
+            mob = dict(combat["mob"])
+            mob["cd_left"] = round(max(0.0, mob["cd_left"] - age), 2)
+            combat["mob"] = mob
+        if combat.get("hero_cd") is not None:
+            hero_cd = dict(combat["hero_cd"])
+            hero_cd["cd_left"] = round(max(0.0, hero_cd["cd_left"] - age), 2)
+            combat["hero_cd"] = hero_cd
+        combat["squad"] = [
+            {**u, "cd_left": round(max(0.0, u["cd_left"] - age), 2)}
+            for u in combat.get("squad", [])]
+        return snap
+
     def refresh(self) -> None:
         """Rebuild the snapshot from the current Game state."""
         g = self.game
@@ -167,8 +156,6 @@ class WebUI:
             self.show_event(g.doors)
         elif g.state == PHASE_COMBAT and g.combat is not None:
             self.show_combat(g.combat, g.combat_phase)
-            if g.combat_phase in (OUTCOME, COMBAT_END) and g.last_turn:
-                self.show_combat_outcome(g.last_turn)
         elif g.state == PHASE_SHOP:
             self.show_shop(g.shop_items)
         elif g.state == PHASE_REST:
@@ -198,51 +185,44 @@ class WebUI:
         self._publish()
 
     def show_combat(self, combat, phase: str) -> None:
-        if combat is not self._combat:  # новый бой — сбросить итог прошлого
+        if combat is not self._combat:  # новый бой — сбросить блок целиком
             self._combat = combat
             self._state["combat"] = {"subphase": "", "mob": None,
-                                     "commands": [], "turn": None}
+                                     "hero_cd": None, "squad": [],
+                                     "events": []}
         self._state["phase"] = PHASE_COMBAT
         block = self._state["combat"]
         block["subphase"] = phase
         block["mob"] = {"icon": combat.mob.icon, "name": combat.mob.name,
                         "hp": combat.mob_hp, "max_hp": combat.mob.hp,
                         "damage": f"{combat.mob.damage_min}–"
-                                  f"{combat.mob.damage_max}"}
-        if phase == ATTACK:
-            block["commands"] = _attack_commands(self.game.hero,
-                                                 self._words())
-        elif phase == DEFENSE:
-            block["commands"] = _defense_commands(self._words())
-        else:
-            block["commands"] = []
+                                  f"{combat.mob.damage_max}",
+                        "cooldown": combat.mob.cooldown,
+                        "cd_left": round(combat.mob_cd_left, 2)}
+        block["hero_cd"] = {"cooldown": round(combat.hero_cd, 2),
+                            "cd_left": round(combat.hero_cd_left, 2)}
+        block["squad"] = [self._squad_entry(u) for u in combat.squad]
         self._publish()
 
-    def show_combat_outcome(self, result) -> None:
+    def show_combat_events(self, events) -> None:
+        """Append the frame's combat events to the snapshot queue (last
+        MAX_COMBAT_EVENTS kept) and republish."""
         self._state["phase"] = PHASE_COMBAT
         block = self._state["combat"]
-        block["subphase"] = OUTCOME
-        block["commands"] = []
-        block["turn"] = self._turn_view(result)
+        block["events"].extend(
+            {"seq": e.seq, "attacker": e.attacker, "target": e.target,
+             "damage": e.damage, "crit": e.crit,
+             "armor_absorbed": e.armor_absorbed, "target_hp": e.target_hp}
+            for e in events)
+        del block["events"][:-MAX_COMBAT_EVENTS]
         self._publish()
 
-    def _turn_view(self, result) -> dict[str, Any]:
-        hero = self.game.hero
-        weapon_label = None
-        if result.weapon is not None:
-            item = getattr(hero, result.weapon, None) if hero else None
-            weapon_label = (item.name if item is not None
-                            else WEAPON_NAMES.get(result.weapon))
-        return {"actor": result.actor,
-                "weapon": result.weapon,
-                "weapon_label": weapon_label,
-                "direction": result.direction,
-                "direction_name": DIRECTION_NAMES.get(result.direction),
-                "blocked": result.blocked,
-                "damage": result.damage,
-                "crit": result.crit,
-                "target_hp": result.target_hp,
-                "armor": hero.armor_value if hero is not None else 0}
+    @staticmethod
+    def _squad_entry(unit) -> dict[str, Any]:
+        return {"nick": unit.nick, "emoji": unit.emoji,
+                "damage": f"{unit.damage_min}–{unit.damage_max}",
+                "cooldown": round(unit.cooldown, 2),
+                "cd_left": round(unit.cd_left, 2), "active": unit.active}
 
     def _shop_item(self, item, n: int, word: str | None) -> dict[str, Any]:
         hero = self.game.hero
@@ -295,8 +275,6 @@ class WebUI:
         phase = self._state["phase"]
         if phase == PHASE_EVENT:
             items = self._state["event"]["doors"]
-        elif phase == PHASE_COMBAT:
-            items = self._state["combat"]["commands"]
         elif phase == PHASE_SHOP:
             shop = self._state["shop"]
             items = shop["items"] + [shop["exit"]]
@@ -332,14 +310,22 @@ class WebUI:
         # овертайм голосования (0 голосов): таймер на странице мигает
         snap["overtime"] = self._overtime()
         if snap["phase"] == PHASE_COMBAT and self.game.combat is not None:
+            combat = self.game.combat
             block = snap["combat"]
             block["subphase"] = self.game.combat_phase
             if block["mob"] is not None:
-                block["mob"]["hp"] = self.game.combat.mob_hp
-            if block["subphase"] in (OUTCOME, COMBAT_END):
-                block["commands"] = []
+                block["mob"]["hp"] = combat.mob_hp
+                block["mob"]["cd_left"] = round(combat.mob_cd_left, 2)
+            if block["hero_cd"] is not None:
+                block["hero_cd"]["cd_left"] = round(combat.hero_cd_left, 2)
+            live = {u.nick: u for u in combat.squad}
+            for entry in block["squad"]:
+                unit = live.get(entry["nick"])
+                if unit is not None:
+                    entry["cd_left"] = round(unit.cd_left, 2)
         self._published_seconds = snap["time_left"]
         self._published_overtime = snap["overtime"]
+        self._published_at = time.monotonic()
         self._snapshot = snap
 
     def _seconds(self) -> int:
@@ -361,10 +347,12 @@ class WebUI:
             "max_hp": hero.max_hp,
             "mana": hero.mana,
             "max_mana": hero.max_mana,
+            # getattr: headless-тесты подменяют игру SimpleNamespace
+            "deaths": getattr(self.game, "deaths", 0),
             "stats": [{"key": s, "name": STAT_NAMES[s],
                        "value": getattr(hero, s)} for s in STATS],
             "slots": {slot: _slot_view(getattr(hero, slot), slot)
-                      for slot in ("melee", "ranged", "armor")},
+                      for slot in ("melee", "armor")},
         }
 
     def _apply_votes(self, items: list[dict[str, Any]],

@@ -53,14 +53,17 @@ class PersistenceTests(unittest.TestCase):
         hero.gold = 37
         hero.hp = hero.max_hp - 3
         hero.mana = 0
-        hero.equip(Item(name="Лук", icon="🏹", slot="ranged", damage_min=2,
-                        damage_max=4, uses=3, armor=None, price=10))
+        hero.equip(Item(name="Ржавый меч", icon="🗡️", slot="melee",
+                        damage_min=1, damage_max=4, armor=None, price=8))
         hero.equip(Item(name="Кольчуга", icon="🛡", slot="armor",
-                        damage_min=None, damage_max=None, uses=None, armor=2,
-                        price=15))
+                        damage_min=None, damage_max=None, armor=2, price=20))
         game.kills = 3
         game.gold_earned = 21
+        game.deaths = 2
         game.defeated = ["Злой Вася", "Хилый viewer2"]
+
+    def test_save_version_is_3(self):
+        self.assertEqual(SAVE_VERSION, 3)
 
     def test_roundtrip_hero_and_counters(self):
         game = self.make_game()
@@ -75,14 +78,31 @@ class PersistenceTests(unittest.TestCase):
         self.assertEqual(hero.gold, 37)
         self.assertEqual(hero.hp, hero.max_hp - 3)
         self.assertEqual(hero.mana, 0)
-        self.assertEqual(hero.melee.name, "Кулаки")  # стартовые
-        self.assertEqual(hero.ranged.name, "Лук")
-        self.assertEqual(hero.ranged.uses, 3)
+        self.assertEqual(hero.melee.name, "Ржавый меч")
+        self.assertEqual((hero.melee.damage_min, hero.melee.damage_max), (1, 4))
+        self.assertEqual(hero.damage_range(), (2, 5))  # +1 сила
+        self.assertEqual(hero.armor.name, "Кольчуга")
         self.assertEqual(hero.armor.armor, 2)
+        self.assertEqual(hero.armor_value, 2)
         self.assertEqual(data["kills"], 3)
         self.assertEqual(data["gold_earned"], 21)
+        self.assertEqual(data["deaths"], 2)
         self.assertEqual(data["defeated"], ["Злой Вася", "Хилый viewer2"])
         self.assertEqual(data["pending_levelups"], 1)
+
+    def test_no_legacy_fields_in_save(self):
+        # старых полей (ranged/shield/uses/block) в сейве больше нет
+        game = self.make_game()
+        self.progress(game)
+        game._save_checkpoint()
+        data = json.loads(self.save_path.read_text(encoding="utf-8"))
+        hero = data["hero"]
+        self.assertIn("melee", hero)
+        self.assertIn("armor", hero)
+        for legacy in ("ranged", "shield", "uses", "block_min", "block_max"):
+            self.assertNotIn(legacy, hero)
+            self.assertNotIn(legacy, hero["melee"])
+            self.assertNotIn(legacy, hero["armor"])
 
     def test_new_game_restores_progress_into_fresh_event(self):
         game = self.make_game()
@@ -107,10 +127,41 @@ class PersistenceTests(unittest.TestCase):
         game = self.make_game()
         self.progress(game)
         game._save_checkpoint()
-        game.enter_run_start()  # смерть → новый забег
+        game.enter_run_start()  # свежий старт (битый сейв) → герой 1 уровня
         restored = self.make_game()
         self.assertEqual(restored.hero.level, 1)
         self.assertEqual(restored.kills, 0)
+
+    def test_death_checkpoint_resets_run_stats(self):
+        game = self.make_game()
+        self.progress(game)
+        game.hero.xp = 8
+        game.hero.hp = 0  # погиб в бою
+        game.enter_game_over()  # чекпоинт пишется сразу после сброса
+        restored = self.make_game()
+        self.assertEqual(restored.state, EVENT)
+        self.assertEqual(restored.hero.strength, 1)
+        self.assertEqual(restored.hero.armor.armor, 2)
+        self.assertEqual((restored.hero.gold, restored.hero.xp), (0, 0))
+        self.assertEqual(restored.hero.hp, restored.hero.max_hp)
+        self.assertEqual(restored.kills, 0)      # статистика забега сброшена
+        self.assertEqual(restored.gold_earned, 0)
+        self.assertEqual(restored.defeated, [])
+        self.assertEqual(restored.deaths, 3)  # 2 из progress + смерть
+
+    def test_save_without_deaths_rejected(self):
+        # deaths — обязательное поле SAVE_VERSION=3; сейв без него битый
+        game = self.make_game()
+        self.progress(game)
+        game._save_checkpoint()
+        data = json.loads(self.save_path.read_text(encoding="utf-8"))
+        del data["deaths"]
+        self.save_path.write_text(json.dumps(data), encoding="utf-8")
+        self.assertIsNone(load_checkpoint(self.save_path))
+        restored = self.make_game()  # новый забег вместо падения
+        self.assertEqual(restored.deaths, 0)
+        self.assertEqual(restored.kills, 0)
+        self.assertEqual(restored.hero.level, 1)
 
     def test_broken_json_falls_back_to_new_run(self):
         self.save_path.write_text("{не json", encoding="utf-8")

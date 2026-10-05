@@ -1,6 +1,6 @@
 name = "Боевой топор"
 icon = "🪓"
 slot = "melee"
-damage_min = 3
-damage_max = 7
+damage_min = 2
+damage_max = 5
 price = 18

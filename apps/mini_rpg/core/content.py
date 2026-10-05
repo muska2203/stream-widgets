@@ -18,7 +18,7 @@ DEFAULT_PREFIXES_PATH = Path(__file__).resolve().parent.parent / "prefixes.toml"
 # фолбэк, если prefixes.toml отсутствует или список в нём пуст
 DEFAULT_PREFIXES = ("Гнусный", "Смешной", "Горючий", "Хилый", "Жирный")
 
-SLOTS = ("melee", "ranged", "armor")
+SLOTS = ("melee", "armor")
 
 
 class ContentError(ValueError):
@@ -34,18 +34,25 @@ class Mob:
     damage_max: int
     xp: int
     gold: int
+    cooldown: float = 5.0  # секунд между атаками моба
 
 
 @dataclass
 class Item:
     name: str
     icon: str
-    slot: str  # melee | ranged | armor
-    damage_min: int | None  # для melee/ranged
+    slot: str  # melee | armor
+    damage_min: int | None  # для melee
     damage_max: int | None
-    uses: int | None        # для ranged
-    armor: int | None       # для armor
+    armor: int | None       # для armor — флэт-поглощение удара моба
     price: int
+    starter: bool = False   # стартовый предмет героя; в магазин не попадает
+
+
+# фолбэк стартового оружия, если в items/ нет предмета со starter = true
+# (как DEFAULT_PREFIXES для prefixes.toml)
+DEFAULT_STARTER = Item(name="Кулаки", icon="👊", slot="melee", damage_min=1,
+                       damage_max=2, armor=None, price=0, starter=True)
 
 
 def load_mob(path: str | Path) -> Mob:
@@ -57,8 +64,9 @@ def load_mob(path: str | Path) -> Mob:
     damage_min, damage_max = _require_damage(name, data)
     xp = _optional_int(name, data, "xp", minimum=0)
     gold = _optional_int(name, data, "gold", minimum=0)
+    cooldown = _optional_float(name, data, "cooldown", default=5.0)
     return Mob(name=mob_name, icon=icon, hp=hp, damage_min=damage_min,
-               damage_max=damage_max, xp=xp, gold=gold)
+               damage_max=damage_max, xp=xp, gold=gold, cooldown=cooldown)
 
 
 def load_item(path: str | Path) -> Item:
@@ -71,15 +79,17 @@ def load_item(path: str | Path) -> Item:
         raise ContentError(f"{name}: slot обязателен, одно из {SLOTS}")
     price = _require_int(name, data, "price", minimum=0)
 
-    damage_min = damage_max = uses = armor = None
-    if slot in ("melee", "ranged"):
+    damage_min = damage_max = armor = None
+    if slot == "melee":
         damage_min, damage_max = _require_damage(name, data)
-    if slot == "ranged":
-        uses = _require_int(name, data, "uses", minimum=1)
     if slot == "armor":
         armor = _require_int(name, data, "armor", minimum=0)
+    starter = data.get("starter", False)
+    if not isinstance(starter, bool):
+        raise ContentError(f"{name}: starter — true/false")
     return Item(name=item_name, icon=icon, slot=slot, damage_min=damage_min,
-                damage_max=damage_max, uses=uses, armor=armor, price=price)
+                damage_max=damage_max, armor=armor, price=price,
+                starter=starter)
 
 
 def discover_mobs(directory: str | Path = DEFAULT_MOBS_DIR) -> list[Path]:
@@ -100,6 +110,27 @@ def load_mobs(directory: str | Path = DEFAULT_MOBS_DIR) -> list[Mob]:
 def load_items(directory: str | Path = DEFAULT_ITEMS_DIR) -> list[Item]:
     """Load the whole pool; ContentError names the broken file."""
     return [load_item(p) for p in discover_items(directory)]
+
+
+def find_starters(items: list[Item]) -> list[Item]:
+    """Starter kit: items with starter = true, at most one per slot; a melee
+    starter is required (без ближнего оружия бой не стартует). No starter
+    items at all → [DEFAULT_STARTER]."""
+    starters = []
+    seen = set()
+    for it in items:
+        if not it.starter:
+            continue
+        if it.slot in seen:
+            raise ContentError(f"два стартовых предмета в слоте {it.slot}")
+        seen.add(it.slot)
+        starters.append(it)
+    if not starters:
+        return [DEFAULT_STARTER]
+    if "melee" not in seen:
+        raise ContentError("стартовый набор без ближнего оружия "
+                           "(starter = true, slot = melee)")
+    return starters
 
 
 def load_prefixes(path: str | Path = DEFAULT_PREFIXES_PATH) -> list[str]:
@@ -166,6 +197,14 @@ def _optional_int(file: str, data: dict, key: str, minimum: int) -> int:
     if not isinstance(value, int) or value < minimum:
         raise ContentError(f"{file}: {key} — целое >= {minimum}")
     return value
+
+
+def _optional_float(file: str, data: dict, key: str, default: float) -> float:
+    value = data.get(key, default)
+    if (isinstance(value, bool) or not isinstance(value, (int, float))
+            or value <= 0):
+        raise ContentError(f"{file}: {key} — число > 0")
+    return float(value)
 
 
 def _require_damage(file: str, data: dict) -> tuple[int, int]:

@@ -1,7 +1,7 @@
 """Run progress persistence between sessions (checkpoint at event entry).
 
 Only the durable layer is saved: the hero (stats, level, xp, gold, hp/mana,
-equipment) and the run counters (kills, gold_earned, defeated,
+equipment) and the run counters (kills, gold_earned, deaths, defeated,
 pending_levelups). The state machine — phase, combat, votes, timers — is
 transient and never persisted; a restore re-enters EVENT with freshly rolled
 doors. The file is versioned JSON written atomically (tmp + replace, like
@@ -22,12 +22,12 @@ from apps.mini_rpg.core.content import SLOTS
 if TYPE_CHECKING:
     from apps.mini_rpg.game import Game
 
-SAVE_VERSION = 1
+SAVE_VERSION = 3
 
 _HERO_SCALARS = ("base_hp", "strength", "agility", "intellect", "endurance",
                  "luck", "level", "xp", "gold", "hp", "mana")
-_ITEM_FIELDS = ("name", "icon", "slot", "damage_min", "damage_max", "uses",
-                "armor", "price")
+_ITEM_FIELDS = ("name", "icon", "slot", "damage_min", "damage_max", "armor",
+                "price")
 
 
 def default_save_path() -> Path:
@@ -40,6 +40,7 @@ def save_checkpoint(path: str | Path, game: Game) -> None:
                "hero": asdict(game.hero),
                "kills": game.kills,
                "gold_earned": game.gold_earned,
+               "deaths": game.deaths,
                "defeated": list(game.defeated),
                "pending_levelups": game.pending_levelups}
     path = Path(path)
@@ -71,6 +72,7 @@ def load_checkpoint(path: str | Path) -> dict | None:
         hero = _hero_from_dict(data["hero"])
         kills = _nonneg_int(data["kills"], "kills")
         gold_earned = _nonneg_int(data["gold_earned"], "gold_earned")
+        deaths = _nonneg_int(data["deaths"], "deaths")
         pending = _nonneg_int(data["pending_levelups"], "pending_levelups")
         defeated = data["defeated"]
         if not isinstance(defeated, list) or \
@@ -82,7 +84,7 @@ def load_checkpoint(path: str | Path) -> dict | None:
     hero.hp = min(hero.hp, hero.max_hp)
     hero.mana = min(hero.mana, hero.max_mana)
     return {"hero": hero, "kills": kills, "gold_earned": gold_earned,
-            "defeated": defeated, "pending_levelups": pending}
+            "deaths": deaths, "defeated": defeated, "pending_levelups": pending}
 
 
 def _reject(path: Path, reason: str) -> None:
@@ -119,7 +121,7 @@ def _item_from_dict(data, where: str) -> Item | None:
         raise ValueError(f"{where}: name/icon — строки")
     if not isinstance(values["price"], int):
         raise ValueError(f"{where}.price — целое")
-    for key in ("damage_min", "damage_max", "uses", "armor"):
+    for key in ("damage_min", "damage_max", "armor"):
         if values[key] is not None and not isinstance(values[key], int):
             raise ValueError(f"{where}.{key} — целое или null")
     return Item(**values)

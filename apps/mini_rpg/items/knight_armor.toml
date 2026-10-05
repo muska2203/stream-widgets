@@ -1,0 +1,5 @@
+name = "Рыцарский доспех"
+icon = "🔰"
+slot = "armor"
+armor = 3
+price = 35

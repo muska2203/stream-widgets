@@ -12,8 +12,13 @@ from streamkit import load_toml_config
 class Config:
     channel: str = ""
     event_duration: float = 15.0        # секунд на выбор двери чатом
-    combat_duration: float = 12.0       # секунд на одно голосование в бою
-    combat_outcome_pause: float = 2.5   # показ итога хода боя
+    hero_cooldown: float = 5.0          # базовый КД атаки героя, сек
+    agility_cd_reduction: float = 0.5   # −сек к КД героя за очко Ловкости
+    min_cooldown: float = 1.0           # нижний предел КД героя, сек
+    chatter_cd_min: float = 3.0         # диапазон броска КД чаттера отряда, сек
+    chatter_cd_max: float = 8.0
+    chat_damage_pct: int = 5            # DPS чаттера отряда = % от среднего DPS героя
+    chat_damage_cap_pct: int = 100      # макс. атакующих в отряде = cap // pct
     levelup_duration: float = 15.0      # секунд на выбор статы при апе
     shop_duration: float = 25.0         # секунд на голосование в магазине
     overtime_duration: float = 5.0      # овертайм голосования при 0 голосов (один раз на раунд)

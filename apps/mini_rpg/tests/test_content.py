@@ -7,16 +7,17 @@ import unittest
 from pathlib import Path
 
 from apps.mini_rpg.core import (DEFAULT_ITEMS_DIR, DEFAULT_MOBS_DIR,
-                                DEFAULT_PREFIXES, ContentError, discover_items,
-                                discover_mobs, load_item, load_items, load_mob,
-                                load_mobs, load_prefixes)
+                                DEFAULT_PREFIXES, DEFAULT_STARTER, ContentError,
+                                discover_items, discover_mobs, find_starters,
+                                load_item, load_items, load_mob, load_mobs,
+                                load_prefixes)
 
 MOB = """
 name = "Гоблин"
 icon = "👺"
 hp = 20
 damage_min = 2
-damage_max = 5
+damage_max = 4
 xp = 8
 gold = 5
 """
@@ -30,17 +31,9 @@ damage_max = 4
 price = 8
 """
 
-RANGED = """
-name = "Лук"
-slot = "ranged"
-damage_min = 3
-damage_max = 7
-uses = 5
-price = 15
-"""
-
 ARMOR = """
 name = "Кольчуга"
+icon = "🛡️"
 slot = "armor"
 armor = 2
 price = 20
@@ -80,7 +73,7 @@ class LoadMobTests(PoolTestCase):
         self.assertEqual(mob.name, "Гоблин")
         self.assertEqual(mob.icon, "👺")
         self.assertEqual(mob.hp, 20)
-        self.assertEqual((mob.damage_min, mob.damage_max), (2, 5))
+        self.assertEqual((mob.damage_min, mob.damage_max), (2, 4))
         self.assertEqual((mob.xp, mob.gold), (8, 5))
 
     def test_optional_fields_default(self):
@@ -89,6 +82,20 @@ class LoadMobTests(PoolTestCase):
                              'damage_max = 1\n'))
         self.assertEqual(mob.icon, "")
         self.assertEqual((mob.xp, mob.gold), (0, 0))
+        self.assertEqual(mob.cooldown, 5.0)
+
+    def test_cooldown_loads(self):
+        mob = load_mob(write(self.tmp, "slow.toml", MOB + "cooldown = 3.5\n"))
+        self.assertEqual(mob.cooldown, 3.5)
+        mob = load_mob(write(self.tmp, "int.toml", MOB + "cooldown = 7\n"))
+        self.assertEqual(mob.cooldown, 7.0)  # целое в TOML — тоже валидно
+
+    def test_cooldown_must_be_positive(self):
+        self.check_mob(MOB + "cooldown = 0\n", "cooldown")
+        self.check_mob(MOB + "cooldown = -1.5\n", "cooldown")
+
+    def test_cooldown_must_be_numeric(self):
+        self.check_mob(MOB + 'cooldown = "быстро"\n', "cooldown")
 
     def test_unknown_keys_ignored(self):
         mob = load_mob(write(self.tmp, "x.toml", MOB + '\nflavor = "текст"\n'))
@@ -98,18 +105,30 @@ class LoadMobTests(PoolTestCase):
         self.check_mob('name = \n', "ошибка TOML")
 
     def test_missing_name(self):
-        self.check_mob("hp = 10\ndamage_min = 1\ndamage_max = 2\n", "name")
+        self.check_mob("hp = 10\ndamage_min = 1\ndamage_max = 1\n", "name")
 
     def test_missing_hp(self):
-        self.check_mob('name = "Б"\ndamage_min = 1\ndamage_max = 2\n', "hp")
+        self.check_mob('name = "Б"\ndamage_min = 1\ndamage_max = 1\n', "hp")
 
-    def test_max_below_min(self):
+    def test_missing_damage(self):
+        self.check_mob('name = "Б"\nhp = 10\ndamage_max = 1\n', "damage_min")
+        self.check_mob('name = "Б"\nhp = 10\ndamage_min = 1\n', "damage_max")
+
+    def test_negative_damage(self):
+        self.check_mob('name = "Б"\nhp = 10\ndamage_min = -1\ndamage_max = 1\n',
+                       "damage_min")
+
+    def test_damage_max_below_min(self):
         self.check_mob('name = "Б"\nhp = 10\ndamage_min = 5\ndamage_max = 2\n',
                        "damage_max")
 
     def test_real_pool_is_valid(self):
         mobs = load_mobs(DEFAULT_MOBS_DIR)
-        self.assertGreaterEqual(len(mobs), 3, "ожидаются стартовые мобы")
+        self.assertEqual({m.name for m in mobs},
+                         {"Гоблин", "Орк", "Скелет", "Слайм"})
+        for m in mobs:
+            self.assertGreaterEqual(m.damage_max, m.damage_min)
+            self.assertGreater(m.cooldown, 0)
 
 
 class LoadItemTests(PoolTestCase):
@@ -117,19 +136,15 @@ class LoadItemTests(PoolTestCase):
         item = load_item(write(self.tmp, "sword.toml", MELEE))
         self.assertEqual(item.slot, "melee")
         self.assertEqual((item.damage_min, item.damage_max), (2, 4))
-        self.assertIsNone(item.uses)
         self.assertIsNone(item.armor)
 
-    def test_loads_ranged(self):
-        item = load_item(write(self.tmp, "bow.toml", RANGED))
-        self.assertEqual(item.slot, "ranged")
-        self.assertEqual(item.uses, 5)
-        self.assertEqual(item.icon, "")
-
     def test_loads_armor(self):
-        item = load_item(write(self.tmp, "mail.toml", ARMOR))
+        item = load_item(write(self.tmp, "armor.toml", ARMOR))
+        self.assertEqual(item.slot, "armor")
         self.assertEqual(item.armor, 2)
+        self.assertEqual(item.icon, "🛡️")
         self.assertIsNone(item.damage_min)
+        self.assertIsNone(item.damage_max)
 
     def test_unknown_keys_ignored(self):
         item = load_item(write(self.tmp, "x.toml", MELEE + '\nlore = "x"\n'))
@@ -140,6 +155,10 @@ class LoadItemTests(PoolTestCase):
 
     def test_bad_slot(self):
         self.check_item('name = "X"\nslot = "wand"\nprice = 1\n', "slot")
+        self.check_item('name = "X"\nslot = "shield"\nblock_min = 1\n'
+                        'block_max = 2\nprice = 1\n', "slot")  # щита больше нет
+        self.check_item('name = "X"\nslot = "ranged"\ndamage_min = 1\n'
+                        'damage_max = 2\nprice = 1\n', "slot")  # и дальнего нет
 
     def test_missing_price(self):
         self.check_item('name = "X"\nslot = "armor"\narmor = 1\n', "price")
@@ -147,23 +166,77 @@ class LoadItemTests(PoolTestCase):
     def test_melee_without_damage(self):
         self.check_item('name = "X"\nslot = "melee"\nprice = 1\n',
                         "damage_min")
+        self.check_item('name = "X"\nslot = "melee"\ndamage_min = 1\n'
+                        'price = 1\n', "damage_max")
 
-    def test_ranged_without_uses(self):
-        self.check_item('name = "X"\nslot = "ranged"\ndamage_min = 1\n'
-                        'damage_max = 2\nprice = 1\n', "uses")
+    def test_damage_max_below_min(self):
+        self.check_item('name = "X"\nslot = "melee"\ndamage_min = 5\n'
+                        'damage_max = 2\nprice = 1\n', "damage_max")
 
-    def test_ranged_zero_uses(self):
-        self.check_item('name = "X"\nslot = "ranged"\ndamage_min = 1\n'
-                        'damage_max = 2\nuses = 0\nprice = 1\n', "uses")
-
-    def test_armor_without_armor(self):
+    def test_armor_without_armor_value(self):
         self.check_item('name = "X"\nslot = "armor"\nprice = 1\n', "armor")
+
+    def test_starter_defaults_to_false(self):
+        item = load_item(write(self.tmp, "sword.toml", MELEE))
+        self.assertFalse(item.starter)
+
+    def test_starter_flag_loads(self):
+        item = load_item(write(self.tmp, "fists.toml", MELEE +
+                               "starter = true\n"))
+        self.assertTrue(item.starter)
+
+    def test_starter_not_bool(self):
+        self.check_item(MELEE + 'starter = "да"\n', "starter")
+
+    def test_starter_any_slot_loads(self):
+        armor = load_item(write(self.tmp, "a.toml",
+                                ARMOR + "starter = true\n"))
+        self.assertTrue(armor.starter)
 
     def test_real_pool_is_valid(self):
         items = load_items(DEFAULT_ITEMS_DIR)
-        slots = {i.slot for i in items}
-        self.assertGreaterEqual(len(items), 5)
-        self.assertEqual(slots, {"melee", "ranged", "armor"})
+        self.assertEqual({i.slot for i in items}, {"melee", "armor"})
+        self.assertEqual({i.name for i in items},
+                         {"Боевой топор", "Кулаки", "Ржавый меч",
+                          "Картонная броня", "Кожаная куртка", "Кольчуга",
+                          "Рыцарский доспех"})
+
+
+class FindStartersTests(PoolTestCase):
+    def test_picks_starters_one_per_slot(self):
+        fists = load_item(write(self.tmp, "fists.toml",
+                                MELEE + "starter = true\n"))
+        armor = load_item(write(self.tmp, "armor.toml",
+                                ARMOR + "starter = true\n"))
+        sword = load_item(write(self.tmp, "sword.toml", MELEE))
+        self.assertEqual(find_starters([sword, fists, armor]),
+                         [fists, armor])
+
+    def test_falls_back_to_default(self):
+        sword = load_item(write(self.tmp, "sword.toml", MELEE))
+        self.assertEqual(find_starters([sword]), [DEFAULT_STARTER])
+        self.assertEqual(find_starters([]), [DEFAULT_STARTER])
+
+    def test_melee_starter_required(self):
+        armor = load_item(write(self.tmp, "armor.toml",
+                                ARMOR + "starter = true\n"))
+        with self.assertRaises(ContentError):
+            find_starters([armor])
+
+    def test_two_starters_same_slot_rejected(self):
+        a = load_item(write(self.tmp, "a.toml", MELEE + "starter = true\n"))
+        b = load_item(write(self.tmp, "b.toml", MELEE + "starter = true\n"))
+        with self.assertRaises(ContentError):
+            find_starters([a, b])
+
+    def test_real_pool_starter_kit(self):
+        kit = {it.slot: it
+               for it in find_starters(load_items(DEFAULT_ITEMS_DIR))}
+        self.assertEqual(kit["melee"].name, "Кулаки")  # items/fists.toml
+        self.assertEqual((kit["melee"].damage_min, kit["melee"].damage_max),
+                         (2, 3))
+        self.assertEqual(kit["armor"].name, "Картонная броня")
+        self.assertEqual(kit["armor"].armor, 0)
 
 
 class DiscoveryTests(PoolTestCase):

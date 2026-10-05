@@ -1,0 +1,6 @@
+name = "Картонная броня"
+icon = "📦"
+slot = "armor"
+armor = 0
+price = 0
+starter = true

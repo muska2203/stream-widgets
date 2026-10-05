@@ -1,7 +1,0 @@
-name = "Короткий лук"
-icon = "🏹"
-slot = "ranged"
-damage_min = 4
-damage_max = 8
-uses = 5
-price = 15

@@ -9,7 +9,8 @@ from pathlib import Path
 from apps.mini_rpg.core.content import (DEFAULT_ITEMS_DIR, DEFAULT_MOBS_DIR,
                                         DEFAULT_PREFIXES_PATH, ContentError,
                                         Item, Mob, discover_items,
-                                        discover_mobs, load_item, load_mob,
+                                        discover_mobs, find_starters,
+                                        load_item, load_items, load_mob,
                                         load_prefixes)
 
 
@@ -21,9 +22,24 @@ def main() -> None:
     prefixes_path = (Path(sys.argv[3]) if len(sys.argv) > 3
                      else DEFAULT_PREFIXES_PATH)
     failed = _check_pool(mobs_dir, discover_mobs, load_mob, _format_mob)
-    failed += _check_pool(items_dir, discover_items, load_item, _format_item)
+    items_failed = _check_pool(items_dir, discover_items, load_item,
+                               _format_item)
+    failed += items_failed
+    if not items_failed:
+        failed += _check_starters(items_dir)
     failed += _check_prefixes(prefixes_path)
     sys.exit(1 if failed else 0)
+
+
+def _check_starters(items_dir: Path) -> int:
+    try:
+        starters = find_starters(load_items(items_dir))
+    except ContentError as e:
+        print(f"  FAIL стартовый набор: {e}", flush=True)
+        return 1
+    names = ", ".join(it.name for it in starters)
+    print(f"  OK   стартовый набор: {names}", flush=True)
+    return 0
 
 
 def _check_prefixes(path: Path) -> int:
@@ -56,9 +72,9 @@ def _check_pool(directory, discover, load, format_) -> int:
 
 
 def _format_mob(mob: Mob) -> str:
-    return (f"{mob.icon} {mob.name} — hp {mob.hp}, урон "
-            f"{mob.damage_min}..{mob.damage_max}, награда "
-            f"{mob.xp} xp / {mob.gold} золота")
+    return (f"{mob.icon} {mob.name} — hp {mob.hp}, "
+            f"урон {mob.damage_min}..{mob.damage_max}, "
+            f"награда {mob.xp} xp / {mob.gold} золота")
 
 
 def _format_item(item: Item) -> str:
@@ -66,9 +82,8 @@ def _format_item(item: Item) -> str:
         stats = f"броня {item.armor}"
     else:
         stats = f"урон {item.damage_min}..{item.damage_max}"
-        if item.slot == "ranged":
-            stats += f", {item.uses} использ."
-    return f"{item.icon} {item.name} [{item.slot}] — {stats}, цена {item.price}"
+    line = f"{item.icon} {item.name} [{item.slot}] — {stats}, цена {item.price}"
+    return line + (", стартовый" if item.starter else "")
 
 
 if __name__ == "__main__":

@@ -23,8 +23,11 @@ OVERLAY_HTML = Path(__file__).resolve().parent / "web" / "overlay.html"
 class OverlayServer:
     def __init__(self, ui: WebUI, port: int, host: str = "127.0.0.1"):
         html = OVERLAY_HTML.read_bytes()
+        # fresh_snapshot: cd_left боевых кулдаунов экстраполируется к моменту
+        # отдачи — публикации в бою редкие (по событиям), а страница
+        # ресинкует отсчёт колец КД каждым поллингом
         snapshot_json = lambda: json.dumps(  # noqa: E731
-            ui.snapshot, ensure_ascii=False).encode("utf-8")
+            ui.fresh_snapshot(), ensure_ascii=False).encode("utf-8")
 
         class Handler(BaseHTTPRequestHandler):
             def do_GET(self):  # noqa: N802 (stdlib naming)

@@ -39,7 +39,10 @@ def write_item(directory: Path, filename: str, **fields) -> None:
     for key, value in defaults.items():
         if value is None:
             continue
-        value = f'"{value}"' if isinstance(value, str) else value
+        if isinstance(value, bool):
+            value = "true" if value else "false"
+        elif isinstance(value, str):
+            value = f'"{value}"'
         lines.append(f"{key} = {value}")
     (directory / filename).write_text("\n".join(lines) + "\n",
                                       encoding="utf-8")
@@ -88,6 +91,16 @@ class ShopRestTests(unittest.TestCase):
 
     # --- магазин ---------------------------------------------------------------
 
+    def test_starter_item_not_in_shop_pool(self):
+        write_item(self.items_dir, "fists.toml", name="Кулаки", price=0,
+                   starter=True)
+        write_item(self.items_dir, "sword.toml", name="Меч", price=1)
+        game = self.make_game()
+        self.assertEqual(game.hero.melee.name, "Кулаки")  # стартовый из пула
+        self.assertEqual([it.name for it in game.items_pool], ["Меч"])
+        self.open_shop(game, gold=10)
+        self.assertEqual([it.name for it in game.shop_items], ["Меч"])
+
     def test_price_filter_hides_unaffordable(self):
         write_item(self.items_dir, "cheap.toml", name="Дешёвый", price=5)
         write_item(self.items_dir, "edge.toml", name="Ровно", price=10)
@@ -107,22 +120,23 @@ class ShopRestTests(unittest.TestCase):
         self.assertEqual(len({it.name for it in game.shop_items}), 9)
 
     def test_purchase_equips_copy_pool_intact(self):
-        write_item(self.items_dir, "bow.toml", name="Лук", slot="ranged",
-                   uses=3, price=5)
+        write_item(self.items_dir, "armor.toml", name="Кольчуга",
+                   slot="armor", damage_min=None, damage_max=None, armor=2,
+                   price=5)
         game = self.make_game()
         self.open_shop(game, gold=10)
         game.handle_chat_message("viewer", word(game, "1"))
         game.update(game.cfg.shop_duration + DT)
 
-        bow = game.hero.ranged
-        self.assertIsNotNone(bow)
-        self.assertEqual(bow.name, "Лук")
+        armor = game.hero.armor
+        self.assertIsNotNone(armor)
+        self.assertEqual(armor.name, "Кольчуга")
+        self.assertEqual(game.hero.armor_value, 2)
         self.assertEqual(game.hero.gold, 5)
         pool_item = game.items_pool[0]
-        self.assertIsNot(bow, pool_item)  # экипирована копия
-        game.hero.use_ranged()
-        self.assertEqual(bow.uses, 2)
-        self.assertEqual(pool_item.uses, 3)  # пул не мутировал
+        self.assertIsNot(armor, pool_item)  # экипирована копия
+        armor.armor = 99
+        self.assertEqual(pool_item.armor, 2)  # пул не мутировал
 
         self.assertEqual(game.state, SHOP)  # пауза перед возвратом
         game.update(game.cfg.combat_end_pause + DT)
